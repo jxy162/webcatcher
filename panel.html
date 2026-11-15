@@ -1,0 +1,263 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WebCatcher · 动效捕手</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <div class="app">
+    <header class="masthead">
+      <div class="brand">
+        <svg class="brand-glyph" viewBox="0 0 40 40" aria-hidden="true">
+          <rect x="1" y="1" width="38" height="38" rx="11" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".35"/>
+          <path d="M7 21h5l3-8 5 16 4-21 4 13 3-4h3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <div class="brand-type">
+          <span class="brand-name">WebCatcher</span>
+          <span class="brand-cn">动效捕手 <em>0.1</em></span>
+        </div>
+      </div>
+      <div class="mast-actions">
+        <span class="conn" id="connState"><i></i><span>连接中</span></span>
+        <button class="icon-btn" id="settingsBtn" title="捕获设置" aria-label="捕获设置">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M7 14v6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <section class="page-line" aria-label="当前页面">
+      <div class="page-mark" id="pageMark">W</div>
+      <div class="page-copy">
+        <h1 id="pageTitle">等待页面</h1>
+        <p id="pageUrl">打开一个网页开始捕获</p>
+      </div>
+      <span class="tab-chip">当前标签</span>
+    </section>
+
+    <section class="deck" id="deck" data-active="true">
+      <div class="deck-top">
+        <button class="record-btn" id="recordBtn" aria-pressed="true" title="暂停 / 继续录制（Alt+Shift+R）">
+          <span class="record-orbit"></span>
+          <span class="record-glyph"></span>
+        </button>
+        <div class="deck-copy">
+          <span class="deck-kicker" id="recordingState">正在录制</span>
+          <div class="deck-number"><strong id="eventCount">0</strong><span>个事件</span></div>
+          <span class="deck-clock" id="sessionClock">0:00.0</span>
+        </div>
+        <div class="deck-tools">
+          <button class="tool-btn" id="rescanBtn" title="重新扫描样式和脚本" aria-label="重新扫描">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button class="tool-btn" id="clearBtn" title="清空本次捕获" aria-label="清空捕获">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button class="tool-btn accent" id="exportBtn" title="导出报告或数据" aria-label="导出">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M8 7l4-4 4 4M5 15v5h14v-5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="tape" aria-hidden="true">
+        <div class="tape-ruler"><span>-60s</span><span>-45s</span><span>-30s</span><span>-15s</span><span>LIVE</span></div>
+        <div class="tape-track">
+          <div class="tape-grid"></div>
+          <div class="tape-ticks" id="tapeTicks"></div>
+          <div class="playhead"></div>
+        </div>
+      </div>
+
+      <div class="deck-foot">
+        <div class="live-summary"><i class="live-pip"></i><span id="liveCount">0</span> 个动画正在运行</div>
+        <div class="legend">
+          <span><i class="dot k-transition"></i>过渡</span>
+          <span><i class="dot k-animation"></i>动画</span>
+          <span><i class="dot k-js"></i>JS</span>
+        </div>
+      </div>
+    </section>
+
+    <nav class="tabs" id="tabs" role="tablist" aria-label="捕获视图">
+      <button role="tab" data-tab="timeline" class="active" aria-selected="true">时间线 <span class="tab-count" id="timelineCount">0</span></button>
+      <button role="tab" data-tab="styles" aria-selected="false">样式 <span class="tab-count" id="cssCount">0</span></button>
+      <button role="tab" data-tab="scripts" aria-selected="false">脚本 <span class="tab-count" id="jsCount">0</span></button>
+      <button role="tab" data-tab="live" aria-selected="false">正在运行</button>
+    </nav>
+
+    <main class="workspace">
+      <section class="view active" id="view-timeline" role="tabpanel">
+        <div class="toolbar">
+          <div class="chips" id="timelineFilters">
+            <button class="chip active" data-filter="all">全部</button>
+            <button class="chip" data-filter="motion">动效</button>
+            <button class="chip" data-filter="waapi">WAAPI</button>
+            <button class="chip" data-filter="style">样式触发</button>
+            <button class="chip" data-filter="route">路由</button>
+            <button class="chip" data-filter="loop">JS 循环</button>
+          </div>
+          <label class="search">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m16 16 4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <input id="timelineSearch" type="search" placeholder="搜索目标、属性或调用栈" autocomplete="off">
+          </label>
+        </div>
+        <div class="timeline-head"><span>时间</span><span>事件</span><span>来源</span></div>
+        <div class="timeline-list" id="timelineList"></div>
+        <div class="empty" id="timelineEmpty">
+          <div class="empty-graphic"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <h2>等待动效发生</h2>
+          <p>在页面上悬停、点击、滚动或切换路由。加载动画需要刷新页面后重新捕获。</p>
+        </div>
+        <button class="new-events" id="newEventsBtn" hidden>查看新事件</button>
+      </section>
+
+      <section class="view" id="view-styles" role="tabpanel">
+        <div class="toolbar wrap">
+          <div class="chips" id="cssFilters">
+            <button class="chip active" data-filter="all">全部</button>
+            <button class="chip" data-filter="keyframes">@keyframes</button>
+            <button class="chip" data-filter="transition">过渡</button>
+            <button class="chip" data-filter="animation">动画</button>
+            <button class="chip" data-filter="view-transition">转场</button>
+            <button class="chip" data-filter="scroll">滚动</button>
+          </div>
+          <label class="search">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m16 16 4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <input id="cssSearch" type="search" placeholder="搜索选择器、名称或代码" autocomplete="off">
+          </label>
+        </div>
+        <div class="summary-bar" id="cssSummary"></div>
+        <div class="source-list" id="cssList"></div>
+        <div class="empty" id="cssEmpty">
+          <div class="empty-graphic sheet"><i></i><i></i><i></i></div>
+          <h2>还没有样式线索</h2>
+          <p>WebCatcher 会读取内联样式表，并在后台抓取跨域 CSS。大型站点可能需要几秒。</p>
+        </div>
+      </section>
+
+      <section class="view" id="view-scripts" role="tabpanel">
+        <div class="toolbar">
+          <div class="chips" id="jsFilters">
+            <button class="chip active" data-filter="all">全部</button>
+            <button class="chip" data-filter="library">动画库</button>
+            <button class="chip" data-filter="waapi">WAAPI</button>
+            <button class="chip" data-filter="page-transition">转场</button>
+            <button class="chip" data-filter="scroll">滚动</button>
+          </div>
+          <label class="search">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m16 16 4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <input id="jsSearch" type="search" placeholder="搜索脚本、关键词或片段" autocomplete="off">
+          </label>
+        </div>
+        <div class="summary-bar" id="jsSummary"></div>
+        <div class="source-list" id="jsList"></div>
+        <div class="empty" id="jsEmpty">
+          <div class="empty-graphic code"><i></i><i></i><i></i><i></i></div>
+          <h2>还没有脚本线索</h2>
+          <p>脚本会按动效关键词评分，并保留命中位置附近的源码。内联脚本和动态注入脚本也会被分析。</p>
+        </div>
+      </section>
+
+      <section class="view" id="view-live" role="tabpanel">
+        <div class="live-head">
+          <div>
+            <h2><span id="liveTotal">0</span> 个动画正在运行</h2>
+            <p id="liveUpdated">等待快照</p>
+          </div>
+          <button class="ghost-btn" id="refreshLiveBtn">刷新快照</button>
+        </div>
+        <div class="live-list" id="liveList"></div>
+        <div class="empty" id="liveEmpty">
+          <div class="empty-graphic orbit"><i></i><i></i><i></i></div>
+          <h2>画面现在很安静</h2>
+          <p>运行中的 CSS 动画、过渡和 WAAPI 动画会出现在这里。点击刷新可重新采样。</p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="statusbar">
+      <span class="status-left"><i id="statusDot"></i><span id="statusText">已连接</span></span>
+      <button id="helpBtn">使用说明</button>
+      <span class="status-version">MV3 · v0.1.0</span>
+    </footer>
+  </div>
+
+  <aside class="drawer" id="detailDrawer" aria-hidden="true">
+    <div class="drawer-head">
+      <div>
+        <span class="drawer-kicker" id="detailKind">事件详情</span>
+        <h2 id="detailTitle">—</h2>
+      </div>
+      <button class="icon-btn" id="detailClose" aria-label="关闭详情">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="drawer-body" id="detailBody"></div>
+  </aside>
+
+  <div class="menu" id="exportMenu" hidden>
+    <button data-export="md"><span>Markdown 报告</span><small>适合复盘与分享</small></button>
+    <button data-export="json"><span>JSON 数据</span><small>完整事件与源码线索</small></button>
+  </div>
+
+  <dialog id="settingsDialog" class="modal">
+    <form method="dialog" class="modal-inner">
+      <div class="modal-head">
+        <div><span class="modal-kicker">Capture settings</span><h2>捕获设置</h2></div>
+        <button class="icon-btn" value="cancel" aria-label="关闭"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
+      </div>
+      <label class="switch-row">
+        <span><strong>记录 rAF 动画循环</strong><small>聚合 requestAnimationFrame 调用栈和帧耗时，不逐帧刷屏。</small></span>
+        <input type="checkbox" id="settingRaf" checked>
+        <i class="switch"></i>
+      </label>
+      <label class="switch-row">
+        <span><strong>捕获计算样式</strong><small>记录 transform、opacity、transition 等快照，并匹配当前 CSS 规则。</small></span>
+        <input type="checkbox" id="settingStyles" checked>
+        <i class="switch"></i>
+      </label>
+      <div class="modal-actions">
+        <button class="ghost-btn" value="cancel">取消</button>
+        <button class="primary-btn" id="saveSettingsBtn" value="default">保存设置</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="helpDialog" class="modal">
+    <form method="dialog" class="modal-inner">
+      <div class="modal-head">
+        <div><span class="modal-kicker">Field notes</span><h2>使用说明</h2></div>
+        <button class="icon-btn" value="cancel" aria-label="关闭"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
+      </div>
+      <div class="help-copy">
+        <p>打开目标网页后，正常操作页面。WebCatcher 会在不暂停页面的情况下记录动效。</p>
+        <ol>
+          <li><strong>时间线</strong>记录 transition、animation、WAAPI、样式和类名变化，以及路由跳转。</li>
+          <li><strong>样式</strong>提取 @keyframes、过渡规则、View Transition 和滚动驱动动画。</li>
+          <li><strong>脚本</strong>按动画关键词评分，并给出源码片段与行号。</li>
+          <li><strong>正在运行</strong>展示当前动画的时间轴、关键帧和 timing。</li>
+        </ol>
+        <p>想看页面加载动画，请先打开侧边栏再刷新页面。快捷键 <kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>R</kbd> 可暂停或继续。</p>
+      </div>
+      <div class="modal-actions"><button class="primary-btn" value="default">知道了</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="clearDialog" class="modal small">
+    <form method="dialog" class="modal-inner">
+      <div class="modal-head">
+        <div><span class="modal-kicker">Clear session</span><h2>清空本次捕获？</h2></div>
+      </div>
+      <p class="modal-text">事件、CSS 与脚本分析都会被移除。录制会从当前时刻重新开始，页面不会刷新。</p>
+      <div class="modal-actions">
+        <button class="ghost-btn" value="cancel">取消</button>
+        <button class="danger-btn" id="confirmClearBtn" value="default">清空</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="panel.js"></script>
+</body>
+</html>
