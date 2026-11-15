@@ -42,6 +42,7 @@ test('JS analyzer finds implementation signals', () => {
     document.startViewTransition(() => render());
     card.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 320, easing: 'cubic-bezier(.2,.8,.2,1)' });
     gsap.to('.hero', { y: 0, duration: .6, ease: 'power3.out' });
+    new Swup({ containers: ['#swup'] });
     requestAnimationFrame(loop);
   `;
   const result = analyzeJs(source, 'https://example.com/app.js');
@@ -50,6 +51,8 @@ test('JS analyzer finds implementation signals', () => {
   assert.ok(result.labels.includes('View Transitions API'));
   assert.ok(result.labels.includes('Element.animate()'));
   assert.ok(result.libraries.includes('GSAP'));
+  assert.ok(result.libraries.includes('Swup'));
+  assert.ok(result.tags.includes('page-transition'));
   assert.ok(result.snippets.some((snippet) => snippet.line === 3));
 });
 

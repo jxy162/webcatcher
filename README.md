@@ -13,7 +13,7 @@
 - **实时时间线**：记录 transition、animation、WAAPI、类名 / 内联样式变化、CSSOM 注入、路由跳转和 rAF 循环。
 - **暂停 / 继续**：侧边栏按钮或 `Alt + Shift + R` 随时冻结记录，方便在关键帧处观察页面。
 - **CSS 实现提取**：抓取内联样式、同源样式表，并通过扩展后台拉取跨域 CSS；自动提取 `@keyframes`、transition 规则、View Transition 规则和滚动驱动动画。
-- **JS 实现线索**：分析页面脚本与动态插入脚本，按动效关键词评分，给出源码片段、行号和脚本地址；识别 GSAP、anime.js、Motion、Lottie、Three.js 等常见库。
+- **JS 实现线索**：分析页面脚本与动态插入脚本，按动效关键词评分，给出源码片段、行号和脚本地址；识别 GSAP、anime.js、Motion、Lottie、Three.js、Swup、Barba.js、Turbo、Astro 等常见库与页面转场方案。
 - **运行时调用栈**：对 `Element.animate()`、`startViewTransition()`、GSAP、内联样式写入和 CSSOM 修改记录调用栈。
 - **正在运行**：查看当前页面中所有 animation 的播放状态、时间、目标元素、关键帧和 timing。
 - **导出**：把当前会话导出为 Markdown 报告或完整 JSON。

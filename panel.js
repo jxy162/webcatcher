@@ -1,4 +1,4 @@
-﻿import { buildMarkdown, buildJson, downloadText, kindLabel, fmtBytes } from './lib/export.js';
+import { buildMarkdown, buildJson, downloadText, kindLabel, fmtBytes } from './lib/export.js';
 import { escapeHtml, shortUrl, formatClock, timeAgo } from './lib/format.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);

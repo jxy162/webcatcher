@@ -1,4 +1,4 @@
-﻿(() => {
+(() => {
   'use strict';
   if (window.__WEBCATCHER_MAIN__) return;
   try {
@@ -49,6 +49,7 @@
   const rafStats = new Map();
   const patchedGlobals = new WeakSet();
   let mutationObserver = null;
+  let lastInventorySignature = '';
 
   const now = () => Date.now();
   const clampText = (value, max = 900) => {
@@ -239,21 +240,22 @@
     return rules;
   }
 
-﻿  function emitStyleMutation(element, method, property, value, previous, stack) {
+  function emitStyleMutation(element, method, property, value, previous, stack) {
     if (!state.settings.captureStyles) return;
     inlineStamp.set(element, now());
     let rates = styleRates.get(element);
     if (!rates) { rates = new Map(); styleRates.set(element, rates); }
-    const rate = rates.get(property) || { last: 0, count: 0 };
+    const rate = rates.get(property) || { total: 0, lastEmit: 0 };
     const stamp = now();
-    rate.count += 1;
+    rate.total += 1;
     rates.set(property, rate);
-    if (stamp - rate.last < 1000) return;
-    const repeat = rate.count;
-    rate.last = stamp;
-    rate.count = 0;
+    const shouldEmit = rate.total <= 3 || stamp - rate.lastEmit >= 1000;
+    if (!shouldEmit) return;
+    const repeat = rate.total;
+    rate.lastEmit = stamp;
+    if (repeat > 3) rate.total = 0;
     emit('style', {
-      summary: `${property} → ${clampText(value, 54)}${repeat > 1 ? ` · 合并 ${repeat} 次` : ''}`,
+      summary: `${property} → ${clampText(value, 54)}${repeat > 3 ? ` · 合并 ${repeat} 次` : ''}`,
       target: describeElement(element),
       payload: { method, property, value: clampText(value, 1200), previous: clampText(previous, 300), repeat },
       matchedRules: motionRulesFor(element),
@@ -268,6 +270,7 @@
     const wrapped = function animate(keyframes, options) {
       const stack = getStack();
       const result = original.apply(this, arguments);
+      if (!state.active) return result;
       try {
         const effect = result?.effect;
         const frames = effect?.getKeyframes?.().slice(0, 36);
@@ -317,13 +320,15 @@
   }
 
   function collectViewTransitionNames() {
-    if (!state.settings.captureStyles) return [];
+    if (!state.active || !state.settings.captureStyles) return [];
     const names = [];
+    let scanned = 0;
     try {
       for (const element of document.querySelectorAll('*')) {
         const name = getComputedStyle(element).viewTransitionName;
         if (name && name !== 'none' && !names.includes(name)) names.push(name);
-        if (names.length >= 40) break;
+        scanned += 1;
+        if (names.length >= 40 || scanned >= 3000) break;
       }
     } catch { /* ignore */ }
     return names;
@@ -338,10 +343,10 @@
         configurable: true,
         writable: true,
         value: function startViewTransition(callback) {
-          const stack = getStack();
+          const stack = state.active ? getStack() : '';
           const names = collectViewTransitionNames();
           const result = original.apply(this, arguments);
-          emit('view-transition', {
+          if (state.active) emit('view-transition', {
             summary: `View Transition · ${names.length} 个命名元素`,
             target: { selector: 'document' },
             payload: { names, hasCallback: typeof callback === 'function' },
@@ -369,7 +374,7 @@
         history[method] = function historyChange(...args) {
           const from = location.href;
           const result = original.apply(this, args);
-          emit('route', {
+          if (state.active) emit('route', {
             summary: `${method} → ${location.pathname}${location.search}${location.hash}`,
             payload: { method, from, to: location.href, state: sanitize(args[0]) },
             stack: getStack(),
@@ -418,6 +423,7 @@
     if (typeof originalSetProperty === 'function') {
       try {
         declarationProto.setProperty = function setProperty(property, value, priority) {
+          if (!state.active) return originalSetProperty.call(this, property, value, priority);
           const previous = this.getPropertyValue(property);
           const result = originalSetProperty.call(this, property, value, priority);
           if (state.active && (MOTION_INLINE_PROPS.has(property) || property.startsWith('--')) && String(previous) !== String(this.getPropertyValue(property))) {
@@ -447,6 +453,7 @@
           enumerable: descriptor.enumerable,
           get: descriptor.get,
           set(value) {
+            if (!state.active) { descriptor.set.call(this, value); return; }
             const previous = descriptor.get ? descriptor.get.call(this) : this.getPropertyValue(property);
             descriptor.set.call(this, value);
             const current = descriptor.get ? descriptor.get.call(this) : this.getPropertyValue(property);
@@ -467,6 +474,7 @@
           enumerable: cssTextDescriptor.enumerable,
           get: cssTextDescriptor.get,
           set(value) {
+            if (!state.active) { cssTextDescriptor.set.call(this, value); return; }
             const previous = cssTextDescriptor.get ? cssTextDescriptor.get.call(this) : '';
             cssTextDescriptor.set.call(this, value);
             if (state.active && MOTION_RE.test(String(value)) && state.settings.captureStyles) {
@@ -865,6 +873,7 @@
   }
 
   function handleMutations(records) {
+    if (!state.active) return;
     for (const record of records) {
       if (record.type === 'attributes') {
         handleAttributeMutation(record);
@@ -931,6 +940,7 @@
   }
 
   function handleAnimationEvent(event) {
+    if (!state.active) return;
     const element = event.target;
     if (!(element instanceof Element)) return;
     if (event.type.startsWith('transition')) {
@@ -983,7 +993,7 @@
     catch { return ''; }
   }
 
-  function collectInventory() {
+  function collectInventory(force = false) {
     const roots = collectShadowRoots();
     const scripts = [];
     const styles = [];
@@ -1055,7 +1065,7 @@
       }
     } catch { /* ignore */ }
 
-﻿    for (const root of roots) {
+    for (const root of roots) {
       try {
         for (const sheet of root.adoptedStyleSheets || []) {
           const text = serializeSheet(sheet);
@@ -1066,6 +1076,13 @@
       } catch { /* ignore */ }
     }
 
+    const signature = JSON.stringify({
+      page: [location.href, document.title || ''],
+      scripts: scripts.slice(0, 180).map((item) => item.src || `${item.text.length}:${item.text.slice(0, 48)}`),
+      styles: styles.slice(0, 120).map((item) => item.href || `${item.text.length}:${item.text.slice(0, 48)}`),
+    });
+    if (!force && signature === lastInventorySignature) return;
+    lastInventorySignature = signature;
     post({
       type: 'inventory',
       inventory: {
@@ -1158,12 +1175,14 @@
       }
     } else if (data.type === 'action') {
       if (data.action === 'rescan') {
+        lastInventorySignature = '';
         scheduleInventory(0);
         sendSnapshot();
       } else if (data.action === 'clear') {
         state.queue.length = 0;
         state.seq = 0;
         rafStats.clear();
+        lastInventorySignature = '';
         scheduleInventory(0);
         sendSnapshot();
       } else if (data.action === 'flush') {

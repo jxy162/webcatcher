@@ -1,4 +1,4 @@
-﻿(() => {
+(() => {
   'use strict';
   const MAIN_SOURCE = 'webcatcher-main';
   const BRIDGE_SOURCE = 'webcatcher-bridge';

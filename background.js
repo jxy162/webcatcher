@@ -1,4 +1,4 @@
-﻿import { analyzeCss, simpleHash } from './lib/css-parser.js';
+import { analyzeCss, simpleHash } from './lib/css-parser.js';
 import { analyzeJs } from './lib/js-analyzer.js';
 
 const SESSION_PREFIX = 'webcatcher:session:';
@@ -169,7 +169,8 @@ async function clearSession(tabId) {
   const session = await loadSession(tabId);
   const page = session.page;
   const settings = session.settings;
-  Object.assign(session, makeSession(tabId), { page, settings });
+  const active = session.active;
+  Object.assign(session, makeSession(tabId), { page, settings, active });
   broadcast(tabId, { type: 'session:reset', session: publicSession(session) });
   scheduleSave(session);
   scheduleBadge(tabId, session);

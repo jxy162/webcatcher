@@ -137,8 +137,27 @@ async function eventCount(panel) {
     const scriptTitles = await panel.evaluate(() => [...document.querySelectorAll('#jsList .source-group')].map((group) => ({ title: group.querySelector('.source-title strong')?.textContent, meta: group.querySelector('.source-title small')?.textContent, notice: group.querySelector('.notice')?.textContent })));
     assert.ok(scriptGroups >= 2, 'inline and external script groups should render');
 
+    await panel.evaluate(() => document.querySelector('#recordBtn').click());
+    await wait(350);
+    await panel.evaluate(() => document.querySelector('#clearBtn').click());
+    await wait(200);
+    await panel.evaluate(() => document.querySelector('#confirmClearBtn').click());
+    await wait(900);
+    const cleared = await eventCount(panel);
+    const clearedState = await panel.evaluate(() => ({
+      active: document.querySelector('#deck').dataset.active,
+      label: document.querySelector('#recordingState').textContent,
+    }));
+    assert.ok(cleared < 5, 'clear should reset the timeline');
+    assert.equal(clearedState.active, 'false');
+    assert.equal(clearedState.label, '已暂停');
+    await panel.evaluate(() => document.querySelector('#recordBtn').click());
+    await wait(1700);
+    const afterClearResume = await eventCount(panel);
+    assert.ok(afterClearResume > cleared, 'recording should work after clearing while paused');
+
     assert.deepEqual(errors, []);
-    console.log(JSON.stringify({ extensionId, counts, beforePause, pausedAt, stillPaused, resumed, detail, cssGroups, scriptGroups, scriptTitles }, null, 2));
+    console.log(JSON.stringify({ extensionId, counts, beforePause, pausedAt, stillPaused, resumed, detail, cssGroups, scriptGroups, scriptTitles, cleared, clearedState, afterClearResume }, null, 2));
     console.log('e2e ok');
   } finally {
     await browser.close();
