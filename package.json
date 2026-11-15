@@ -5,7 +5,7 @@
   "description": "Capture live web animation implementations from Chrome.",
   "type": "module",
   "scripts": {
-    "check": "node --check background.js && node --check content/bridge.js && node --check content/recorder.js && node --check panel.js && node --check lib/css-parser.js && node --check lib/js-analyzer.js && node --check lib/export.js && node --check lib/format.js",
+    "check": "node --check background.js && node --check content/bridge.js && node --check content/recorder.js && node --check panel.js && node --check lib/css-parser.js && node --check lib/js-analyzer.js && node --check lib/export.js && node --check lib/format.js && node --check demo/agent-pay/app.js",
     "test": "node --test test/unit.test.mjs",
     "test:e2e": "node test/e2e.cjs"
   },

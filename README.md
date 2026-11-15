@@ -101,6 +101,14 @@ npm run test:e2e
 
 默认使用 Windows 上的 Edge。其他环境可设置 `BROWSER_BIN` 指向 Chrome/Edge 可执行文件。测试截图输出到 `test/artifacts/`。
 
+## 示例页面
+
+`demo/agent-pay/` 是根据本次捕获记录重制的独立动效示例，包含开场 SVG 路径绘制、滚动 reveal、对话支付流程、Agent 眨眼、网络绘制和 3D 卡片倾斜等动画。
+
+![PACT 智能体支付动效示例](docs/demo-pact.png)
+
+直接用浏览器打开 `demo/agent-pay/index.html`，或在仓库根目录执行 `npx serve demo/agent-pay` 后访问本地地址。
+
 ## License
 
 MIT

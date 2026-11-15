@@ -1,0 +1,193 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PACT · 智能体支付动效示例</title>
+  <meta name="description" content="受 WebCatcher 捕获记录启发的智能体支付页面动效示例。">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="data:,">
+  <noscript><style>.intro{display:none!important}body{overflow:auto!important}.nav-wrap{opacity:1!important}</style></noscript>
+</head>
+<body>
+  <div class="intro" id="intro" aria-hidden="true">
+    <div class="intro-grid"></div>
+    <div class="intro-word intro-word--left" id="introWordLeft">PACT</div>
+    <div class="intro-word intro-word--right" id="introWordRight">PAY</div>
+    <div class="intro-center">
+      <div class="intro-mark-wrap">
+        <svg class="intro-mark intro-mark--echo" viewBox="0 0 260 260" fill="none" aria-hidden="true">
+          <path d="M130 30c55 0 98 43 98 98s-43 98-98 98-98-43-98-98 43-98 98-98Z"/>
+          <path d="M82 182V78h47c30 0 49 16 49 42s-19 42-49 42H82"/>
+          <path d="M82 118h47M174 150l25 32"/>
+        </svg>
+        <svg class="intro-mark" id="introMark" viewBox="0 0 260 260" fill="none" aria-hidden="true">
+          <path class="intro-trace" pathLength="1" d="M130 30c55 0 98 43 98 98s-43 98-98 98-98-43-98-98 43-98 98-98Z"/>
+          <path class="intro-trace" pathLength="1" d="M82 182V78h47c30 0 49 16 49 42s-19 42-49 42H82"/>
+          <path class="intro-trace" pathLength="1" d="M82 118h47"/>
+          <path class="intro-trace" pathLength="1" d="M174 150l25 32"/>
+          <circle class="intro-trace" pathLength="1" cx="130" cy="130" r="24"/>
+        </svg>
+      </div>
+      <span class="intro-caption">AGENTIC PAYMENT PROTOCOL</span>
+    </div>
+  </div>
+
+  <header class="nav-wrap">
+    <div class="nav-island" id="navIsland">
+      <a class="brand" href="#top" aria-label="PACT 首页">
+        <span class="brand-face" aria-hidden="true"><i></i><i></i></span>
+        <span class="brand-name">PACT</span>
+      </a>
+      <nav class="nav-links" aria-label="主导航">
+        <div class="nav-product-wrap">
+          <button class="nav-link nav-product-trigger" id="productTrigger" aria-expanded="false">产品 <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m2.5 4.5 3.5 3 3.5-3"/></svg></button>
+          <div class="nav-dropdown" id="productDropdown" hidden>
+            <a href="#demo"><span class="drop-icon">01</span><span><strong>Agent Pay</strong><small>让 Agent 完成支付</small></span></a>
+            <a href="#security"><span class="drop-icon">02</span><strong>Trust Layer</strong><small>每一笔都有边界</small></a>
+            <a href="#network"><span class="drop-icon">03</span><strong>Network</strong><small>连接意图与商品服务</small></a>
+          </div>
+        </div>
+        <a class="nav-link" href="#network">网络</a>
+        <a class="nav-link" href="#security">安全</a>
+        <a class="nav-link" href="#developers">开发者</a>
+      </nav>
+      <a class="nav-cta" href="#demo">体验支付 <span>↗</span></a>
+      <button class="nav-burger" id="navBurger" aria-label="打开菜单" aria-expanded="false"><i></i><i></i></button>
+    </div>
+    <div class="mobile-menu" id="mobileMenu" hidden><a href="#demo">产品</a><a href="#network">网络</a><a href="#security">安全</a><a href="#developers">开发者</a></div>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="hero-halo hero-halo--green"></div>
+      <div class="hero-halo hero-halo--yellow"></div>
+      <div class="hero-inner">
+        <div class="hero-copy">
+          <div class="eyebrow load-reveal"><span class="pulse-dot"></span> Agentic payment protocol <span class="eyebrow-rule"></span> 2026</div>
+          <h1 class="hero-title" aria-label="让支付，发生在意图里。">
+            <span class="title-mask"><span class="title-line load-title" data-title-direction="left">让支付</span></span>
+            <span class="title-mask"><span class="title-line load-title" data-title-direction="right">发生在</span></span>
+            <span class="title-mask"><span class="title-line load-title accent">意图里<span class="title-dot">。</span></span></span>
+          </h1>
+          <p class="hero-sub load-reveal">PACT 让 Agent 在用户授权下完成下单、支付与凭证回传。支付不再是一个结果页，而是一段自然发生的对话。</p>
+          <div class="hero-actions load-reveal">
+            <a class="button button--dark" href="#demo">发起一笔支付 <span class="button-arrow">↘</span></a>
+            <button class="button button--quiet" id="replayHero" type="button"><span class="replay-icon">↻</span> 重播开场</button>
+          </div>
+          <div class="hero-proof load-reveal"><div class="proof-avatars" aria-hidden="true"><i></i><i></i><i></i></div><span>为 120+ Agent 平台提供可信交易能力</span></div>
+        </div>
+
+        <div class="hero-stage" id="heroStage">
+          <div class="stage-orbit stage-orbit--outer"></div>
+          <div class="stage-orbit stage-orbit--inner"></div>
+          <svg class="stage-route" viewBox="0 0 620 620" fill="none" aria-hidden="true">
+            <path class="route-line" d="M74 468C96 318 226 118 474 150c146 19 163 222 58 312"/>
+            <circle class="route-dot route-dot--one" r="4"/><circle class="route-dot route-dot--two" r="3"/>
+          </svg>
+          <div class="receipt-card" id="heroReceipt" aria-hidden="true"><span class="receipt-kicker">PAYMENT COMPLETE</span><strong>¥ 536.00</strong><span class="receipt-line"></span><span class="receipt-meta">19:30 · TABLE 08</span><span class="receipt-stamp">PAID</span></div>
+          <div class="pay-console" id="heroConsole">
+            <div class="console-top"><span class="console-brand"><span class="mini-face"><i></i><i></i></span> PACT AGENT</span><span class="console-live"><i></i> online</span></div>
+            <div class="console-context"><span>Dinner reservation</span><b>Fri · 19:30</b></div>
+            <div class="console-chat">
+              <div class="chat-msg chat-msg--user" data-hero-message><span class="msg-author">You</span><p>周五晚上，帮我订那家靠窗的位置。</p></div>
+              <div class="chat-msg chat-msg--agent" data-hero-message><span class="msg-author"><span class="agent-spark">✳</span> PACT</span><p>找到 19:30 的双人位，人均 ¥268。需要你确认。</p></div>
+              <div class="auth-card" data-hero-auth>
+                <div class="auth-top"><span>授权金额</span><span class="auth-time">30 sec</span></div>
+                <div class="auth-amount"><span>¥</span>536<span>.00</span></div>
+                <div class="auth-detail"><span>晚风餐厅 · 2 位</span><span>免密支付</span></div>
+                <button class="auth-button" type="button">指纹确认 <span>→</span></button>
+              </div>
+            </div>
+            <div class="console-foot"><span class="typing-dots"><i></i><i></i><i></i></span><span>Agent is working in your boundary</span></div>
+          </div>
+          <div class="agent-orb" id="agentOrb" aria-hidden="true"><span class="orb-glow"></span><span class="orb-face"><i class="orb-eye"><b></b></i><i class="orb-eye"><b></b></i></span><span class="orb-smile"></span></div>
+          <div class="float-pill float-pill--top" id="floatPillTop"><i></i> Intent matched</div>
+          <div class="float-pill float-pill--bottom" id="floatPillBottom">Auth boundary · ¥680</div>
+        </div>
+      </div>
+      <div class="hero-bottom"><span>SCROLL TO EXPLORE</span><span class="scroll-track"><i></i></span><span>BUILT FOR AGENTS</span></div>
+    </section>
+
+    <section class="marquee" aria-label="PACT capabilities"><div class="marquee-track"><span>INTENT</span><i>✳</i><span>AUTHORIZE</span><i>✳</i><span>PAY</span><i>✳</i><span>RECEIPT</span><i>✳</i><span>INTENT</span><i>✳</i><span>AUTHORIZE</span><i>✳</i><span>PAY</span><i>✳</i><span>RECEIPT</span><i>✳</i></div></section>
+
+    <section class="section family" id="family">
+      <div class="section-head reveal"><span class="kicker">One protocol · every surface</span><h2>Agent 在哪里，<br>支付就到哪里。</h2><p>从桌面工作流到移动端，再到眼镜、耳机和具身设备。同一套授权、支付与回传能力。</p></div>
+      <div class="surface-grid">
+        <article class="surface-card reveal" style="--delay: 0ms">
+          <div class="surface-art surface-art--desktop"><div class="desk-window"><span class="window-dots"><i></i><i></i><i></i></span><div class="desk-lines"><i></i><i></i><i></i><i></i></div><div class="desk-orb"></div></div><div class="desk-ticket"><span>¥ 268</span><i></i><i></i></div><span class="orbit-dot orbit-dot--green"></span></div>
+          <div class="surface-copy"><span class="surface-index">01 / DESKTOP</span><h3>办公 Agent</h3><p>把支付能力嵌进工作流，让 Agent 在授权范围内完成下单和付款。</p></div>
+        </article>
+        <article class="surface-card reveal" style="--delay: 80ms">
+          <div class="surface-art surface-art--mobile"><div class="phone-shell"><span class="phone-notch"></span><div class="phone-screen"><span class="phone-line"></span><span class="phone-line phone-line--short"></span><span class="phone-bubble phone-bubble--one"></span><span class="phone-bubble phone-bubble--two"></span><span class="phone-pay"></span></div></div><div class="phone-receipt"><i></i><i></i><i></i><span>✓</span></div></div>
+          <div class="surface-copy"><span class="surface-index">02 / MOBILE</span><h3>移动 Agent</h3><p>在对话里确认，在场景里支付。用户始终握着最后的决定权。</p></div>
+        </article>
+        <article class="surface-card reveal" style="--delay: 160ms">
+          <div class="surface-art surface-art--spatial"><div class="glasses"><span class="lens lens--left"></span><span class="bridge"></span><span class="lens lens--right"></span></div><div class="sound-wave"><i></i><i></i><i></i><i></i><i></i></div><span class="spatial-check">✓</span></div>
+          <div class="surface-copy"><span class="surface-index">03 / SPATIAL</span><h3>新终端 Agent</h3><p>看一眼、说一声。支付在空间交互中完成，不打断正在发生的事。</p></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section story" id="demo">
+      <div class="story-grid">
+        <div class="story-copy"><span class="kicker reveal">Live payment flow</span><h2 class="reveal">支付，<br>自然发生在<span class="marker">对话中。</span></h2><p class="reveal">Agent 识别需求、发起订单，用户授权后完成支付，结果自动回传。整个链路，像一次自然的对话。</p>
+          <div class="scenario-tabs reveal" role="tablist" aria-label="支付场景"><button class="scenario-tab is-active" data-scenario="office" role="tab" aria-selected="true">办公</button><button class="scenario-tab" data-scenario="mobile" role="tab" aria-selected="false">移动</button><button class="scenario-tab" data-scenario="spatial" role="tab" aria-selected="false">新终端</button></div>
+          <button class="text-button reveal" id="replayDemo" type="button"><span class="replay-icon">↻</span> 重新演示</button>
+        </div>
+        <div class="demo-shell reveal" id="demoShell"><div class="demo-topbar"><span class="demo-app"><span class="mini-face"><i></i><i></i></span> PACT AGENT</span><span class="demo-status"><i></i> secure session</span></div><div class="demo-chat" id="demoChat" aria-live="polite"></div><div class="demo-compose"><span>告诉 Agent 你想做什么…</span><button type="button" class="compose-send" aria-label="发送">↑</button></div><div class="demo-glow"></div></div>
+      </div>
+    </section>
+
+    <section class="section security" id="security">
+      <div class="section-head reveal"><span class="kicker">Trust by design</span><h2>每一笔，<br>都有清晰的边界。</h2><p>授权、风控、支付、回传，四个动作在同一条链路上发生。用户永远知道什么被授权，什么正在发生。</p></div>
+      <div class="trust-grid">
+        <article class="trust-card reveal" data-tilt style="--delay: 0ms"><div class="trust-art trust-art--lock"><span class="lock-shackle"></span><span class="lock-body"><i></i></span><span class="lock-scan"></span></div><div class="trust-copy"><span class="surface-index">01 / AUTHORITY</span><h3>安全可控</h3><p>每笔交易都需要用户授权。金额、频次、对象和条件，在支付前就被定义。</p></div><span class="card-spotlight"></span></article>
+        <article class="trust-card reveal" data-tilt style="--delay: 90ms"><div class="trust-art trust-art--voice"><span class="mic"><i></i></span><span class="voice-bars"><i></i><i></i><i></i><i></i><i></i></span></div><div class="trust-copy"><span class="surface-index">02 / INTENT</span><h3>一句话支付</h3><p>AI 原生的支付体验。用户在对话中确认，Agent 继续完成任务。</p></div><span class="card-spotlight"></span></article>
+        <article class="trust-card reveal" data-tilt style="--delay: 180ms"><div class="trust-art trust-art--network"><span class="net-core"><i></i></span><span class="net-node net-node--one"></span><span class="net-node net-node--two"></span><span class="net-node net-node--three"></span><span class="net-ring"></span></div><div class="trust-copy"><span class="surface-index">03 / SURFACE</span><h3>多端适配</h3><p>PC、手机、眼镜和耳机共享同一套支付语言，体验随设备自然变化。</p></div><span class="card-spotlight"></span></article>
+      </div>
+    </section>
+
+    <section class="section network" id="network">
+      <div class="network-grid">
+        <div class="network-copy"><span class="kicker reveal">The agent commerce network</span><h2 class="reveal">连接意图，<br>与商品服务。</h2><p class="reveal">PACT 把智能体、用户、钱包与商家串成一条可信链路。每一个节点都知道下一步该去哪里。</p><a class="text-button reveal" href="#developers">查看网络协议 <span>↗</span></a></div>
+        <div class="network-stage reveal" id="networkStage">
+          <svg class="network-svg" viewBox="0 0 760 560" fill="none" aria-hidden="true">
+            <path class="network-path" pathLength="1" d="M64 280C174 280 194 106 334 106h92c140 0 160 174 270 174"/><path class="network-path" pathLength="1" d="M64 280C174 280 194 454 334 454h92c140 0 160-174 270-174"/><path class="network-path network-path--dash" pathLength="1" d="M380 92v376"/>
+            <circle class="network-dot network-dot--a" cx="64" cy="280" r="8"/><circle class="network-dot network-dot--b" cx="334" cy="106" r="8"/><circle class="network-dot network-dot--c" cx="334" cy="454" r="8"/><circle class="network-dot network-dot--d" cx="426" cy="106" r="8"/><circle class="network-dot network-dot--e" cx="426" cy="454" r="8"/><circle class="network-dot network-dot--f" cx="696" cy="280" r="8"/>
+            <circle class="flow-dot flow-dot--one" r="4"/><circle class="flow-dot flow-dot--two" r="3"/>
+          </svg>
+          <div class="network-center"><span class="mini-face"><i></i><i></i></span><strong>PACT</strong><small>trusted settlement</small></div>
+          <span class="network-label network-label--intent">Intent</span><span class="network-label network-label--agent">Agent</span><span class="network-label network-label--merchant">Merchant</span><span class="network-label network-label--wallet">Wallet</span><span class="network-label network-label--receipt">Receipt</span>
+          <span class="network-pulse network-pulse--one"></span><span class="network-pulse network-pulse--two"></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="stats">
+      <div class="stat reveal"><strong>1 亿</strong><span>用户规模愿景</span><p>服务更广泛的 AI 原生消费需求</p></div><div class="stat reveal" style="--delay: 80ms"><strong>3 亿</strong><span>交易规模愿景</span><p>连接每一次可信成交</p></div><div class="stat reveal" style="--delay: 160ms"><strong>全场景</strong><span>商业覆盖</span><p>贯通数字、实体与本地生活</p></div><div class="stat reveal" style="--delay: 240ms"><strong>共建</strong><span>开放生态</span><p>与平台和商家一起长大</p></div>
+    </section>
+
+    <section class="cta" id="developers"><div class="cta-orbit"></div><div class="cta-inner"><span class="kicker reveal">Ready when your agent is</span><h2 class="reveal">让每一个 Agent，<br>拥有自己的钱包。</h2><p class="reveal">从一个 Skill 开始，把意图、授权和成交连在一起。</p><a class="button button--light reveal" href="https://github.com/jxy162/webcatcher" target="_blank" rel="noreferrer">查看接入文档 <span class="button-arrow">↗</span></a></div></section>
+  </main>
+
+  <footer class="footer"><div class="footer-brand"><span class="brand-face brand-face--small"><i></i><i></i></span><strong>PACT</strong><span>Agentic payment protocol</span></div><div class="footer-links"><a href="#demo">产品</a><a href="#network">网络</a><a href="#security">安全</a><a href="#developers">开发者</a></div><span class="footer-note">Motion study · 2026</span></footer>
+
+  <div class="motion-dock"><button id="dockReplay" type="button"><span>↻</span> 重播开场</button><button id="dockSlow" type="button" aria-pressed="false"><span class="slow-dot"></span> 0.5×</button><button id="dockNotes" type="button">动效说明 <span>↗</span></button></div>
+
+  <aside class="notes-panel" id="notesPanel" aria-hidden="true">
+    <div class="notes-head"><div><span class="kicker">Motion notes</span><h2>这页动画怎么做的</h2></div><button id="notesClose" type="button" aria-label="关闭">×</button></div>
+    <div class="notes-body">
+      <article><span>01</span><h3>开场路径绘制</h3><p>SVG 路径设置 <code>pathLength="1"</code>，用 <code>stroke-dashoffset: 1 → 0</code> 绘制，760ms，<code>cubic-bezier(.35,0,.15,1)</code>，每条路径错开 12ms。</p></article>
+      <article><span>02</span><h3>滚动出场</h3><p>元素初始 <code>opacity:0</code>、<code>translate:0 24px</code>、<code>filter:blur(8px)</code>，进入视口后过渡 720ms，缓动 <code>cubic-bezier(.22,1,.36,1)</code>。</p></article>
+      <article><span>03</span><h3>气泡按压</h3><p>点击导航时用 WAAPI 把胶囊下压 6px 再回弹，340ms，中间关键帧使用 <code>cubic-bezier(.22,1,.36,1)</code>。</p></article>
+      <article><span>04</span><h3>Agent 眨眼</h3><p>眼睛用 <code>skew(-7.86deg) scaleY(.08) skew(7.86deg)</code> 保持倾斜不变形，150ms 完成一次眨眼；虹膜随指针用 rAF 插值。</p></article>
+      <article><span>05</span><h3>对话与授权</h3><p>消息以 translate + scale + opacity 入场，授权卡使用轻微回弹；确认后粒子从按钮中心向外散开，形成成交反馈。</p></article>
+      <article><span>06</span><h3>卡片倾斜</h3><p>pointermove 映射到 <code>rotateX / rotateY</code>，再用 CSS 变量控制 spotlight 的径向渐变位置，离开时回正。</p></article>
+    </div>
+  </aside>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body>
+</html>
