@@ -1,10 +1,12 @@
-﻿# WebCatcher · 动效捕手
+# WebCatcher · 动效捕手
 
 一个运行在 Chrome 侧边栏里的网页动效取证工具。它实时读取当前标签页，在不打断页面的前提下记录 CSS 动画、过渡、Web Animations API、View Transitions、JS 动画循环，以及触发它们的代码位置和样式来源。
 
 做这个工具的目标很直接：看到一个喜欢的网页转场或交互动效时，不必猜它是 CSS 还是 JS 写的，打开 WebCatcher 就能看到调用栈、关键帧、缓动曲线和源码片段。
 
 ![status](https://img.shields.io/badge/manifest-v3-ff5f3d) ![status](https://img.shields.io/badge/chrome-%E2%89%A5%20114-7db4ff)
+
+![WebCatcher 工作台](docs/preview.png)
 
 ## 功能
 
@@ -82,6 +84,22 @@ git clone https://github.com/jxy162/webcatcher.git
 cd webcatcher
 # chrome://extensions -> 加载已解压的扩展程序 -> 选择本目录
 ```
+
+## 测试
+
+```powershell
+npm run check
+npm test
+```
+
+端到端测试会启动 Edge，加载未打包扩展，打开测试页并验证捕获、暂停/继续、详情抽屉和来源列表：
+
+```powershell
+npm install
+npm run test:e2e
+```
+
+默认使用 Windows 上的 Edge。其他环境可设置 `BROWSER_BIN` 指向 Chrome/Edge 可执行文件。测试截图输出到 `test/artifacts/`。
 
 ## License
 

@@ -318,6 +318,12 @@ function addInventoryError(session, url, message) {
   session.inventory.errors = session.inventory.errors.slice(0, 30);
 }
 
+function forgetSeen(session, listName, key) {
+  const list = session.inventory[listName];
+  const index = list.indexOf(key);
+  if (index >= 0) list.splice(index, 1);
+}
+
 async function processInventory(tabId, inventory, sender) {
   if (!Number.isInteger(tabId)) return;
   const session = await loadSession(tabId);
@@ -332,6 +338,7 @@ async function processInventory(tabId, inventory, sender) {
 
   const newCss = [];
   const newJs = [];
+  const errorsBefore = session.inventory.errors.length;
   const cssJobs = [];
   const jsJobs = [];
   const seenScripts = new Set(session.inventory.seenScripts);
@@ -357,7 +364,7 @@ async function processInventory(tabId, inventory, sender) {
           const fetched = await enqueueFetch(() => fetchText(url));
           const analysis = analysisForCss(normalizeUrl(url), fetched.text, 'external');
           if (analysis?.items?.length) newCss.push(analysis);
-        } catch (error) { addInventoryError(session, url, error.message); }
+        } catch (error) { addInventoryError(session, url, error.message); forgetSeen(session, 'seenStyles', key); }
       });
     }
   }
@@ -384,6 +391,7 @@ async function processInventory(tabId, inventory, sender) {
           if (analysis) newJs.push(analysis);
         } catch (error) {
           addInventoryError(session, url, error.message);
+          forgetSeen(session, 'seenScripts', key);
           newJs.push({
             id: simpleHash(`error:${url}`), sourceUrl: url, sourceKind: 'external', error: error.message,
             score: 0, labels: [], tags: [], libraries: [], snippets: [], bytes: 0, lines: 0,
@@ -414,6 +422,10 @@ async function processInventory(tabId, inventory, sender) {
   }
   session.analyses.css.push(...uniqueCss);
   session.analyses.js.push(...uniqueJs);
+  if (uniqueJs.length) {
+    const recovered = new Set(uniqueJs.map((item) => item.sourceUrl));
+    session.analyses.js = session.analyses.js.filter((item) => !(item.error && recovered.has(item.sourceUrl)));
+  }
   session.analyses.css = session.analyses.css.slice(-MAX_CSS_ANALYSES);
   session.analyses.js = session.analyses.js.slice(-MAX_JS_ANALYSES);
 
@@ -423,6 +435,9 @@ async function processInventory(tabId, inventory, sender) {
   }
   if (inventory.animations) {
     broadcast(tabId, { type: 'snapshot', snapshot: session.snapshot });
+  }
+  if (session.inventory.errors.length > errorsBefore) {
+    broadcast(tabId, { type: 'toast', message: '部分样式或脚本无法读取，稍后会自动重试' });
   }
   scheduleSave(session);
 }

@@ -35,6 +35,7 @@
   const hooks = {};
   const inlineOwners = new WeakMap();
   const inlineStamp = new WeakMap();
+  const styleRates = new WeakMap();
   const classStamp = new WeakMap();
   const motionRuleCache = new WeakMap();
   const shadowRoots = new WeakSet();
@@ -235,13 +236,23 @@
     return rules;
   }
 
-  function emitStyleMutation(element, method, property, value, previous, stack) {
+﻿  function emitStyleMutation(element, method, property, value, previous, stack) {
     if (!state.settings.captureStyles) return;
     inlineStamp.set(element, now());
+    let rates = styleRates.get(element);
+    if (!rates) { rates = new Map(); styleRates.set(element, rates); }
+    const rate = rates.get(property) || { last: 0, count: 0 };
+    const stamp = now();
+    rate.count += 1;
+    rates.set(property, rate);
+    if (stamp - rate.last < 1000) return;
+    const repeat = rate.count;
+    rate.last = stamp;
+    rate.count = 0;
     emit('style', {
-      summary: `${property} → ${clampText(value, 54)}`,
+      summary: `${property} → ${clampText(value, 54)}${repeat > 1 ? ` · 合并 ${repeat} 次` : ''}`,
       target: describeElement(element),
-      payload: { method, property, value: clampText(value, 1200), previous: clampText(previous, 300) },
+      payload: { method, property, value: clampText(value, 1200), previous: clampText(previous, 300), repeat },
       matchedRules: motionRulesFor(element),
       stack,
     });
@@ -1022,6 +1033,7 @@
 
     try {
       for (const sheet of document.styleSheets) {
+        if (sheet.ownerNode && seenStyles.has(sheet.ownerNode)) continue;
         if (sheet.href) {
           if (!styles.some((item) => item.href === sheet.href)) styles.push({ inline: false, href: sheet.href });
         } else if (sheet.ownerNode) {
@@ -1033,6 +1045,17 @@
         }
       }
     } catch { /* ignore */ }
+
+﻿    for (const root of roots) {
+      try {
+        for (const sheet of root.adoptedStyleSheets || []) {
+          const text = serializeSheet(sheet);
+          if (!text || totalInline > 1_200_000) continue;
+          totalInline += text.length;
+          styles.push({ inline: true, text: text.slice(0, 220_000), label: location.href.split('#')[0] + '#webcatcher-adopted-style-' + styles.length });
+        }
+      } catch { /* ignore */ }
+    }
 
     post({
       type: 'inventory',

@@ -128,6 +128,19 @@ function rememberCopy(text) {
   state.copyStore.set(key, String(text ?? ''));
   return key;
 }
+function displaySource(url) {
+  if (!url) return 'inline';
+  const script = String(url).match(/#webcatcher-inline-script-(\d+)/);
+  if (script) return `inline <script> #${script[1]}`;
+  const style = String(url).match(/#webcatcher-inline-style-(\d+)/);
+  if (style) return `inline <style> #${style[1]}`;
+  const cssom = String(url).match(/#webcatcher-cssom-(\d+)/);
+  if (cssom) return `CSSOM style #${cssom[1]}`;
+  const adopted = String(url).match(/#webcatcher-adopted-style-(\d+)/);
+  if (adopted) return `adopted stylesheet #${adopted[1]}`;
+  return shortUrl(url, 58);
+}
+
 function fileHost() {
   try { return new URL(state.page.url).hostname.replace(/^www\./, '') || 'page'; } catch { return 'page'; }
 }
@@ -203,7 +216,6 @@ function resetLocal() {
   state.pinned = true;
   state.newSeqs.clear();
   state.detailEvent = null;
-  state.newSeqs.clear();
   document.body.classList.remove('drawer-open');
   els.detailDrawer.setAttribute('aria-hidden', 'true');
 }
@@ -409,11 +421,12 @@ function eventMeta(event) {
   const property = event.payload?.propertyName || event.payload?.property || event.payload?.animationName || event.payload?.name || '';
   if (property) pieces.push(`<code>${safe(property)}</code>`);
   const duration = event.payload?.elapsedTime;
-  if (Number.isFinite(duration)) pieces.push(`<code>${Math.round(duration * 1000)}ms</code>`);
+  if (Number.isFinite(duration)) pieces.push(`<code>@${duration.toFixed(2)}s</code>`);
   if (event.stack) pieces.push('<span class="badge stack">JS</span>');
   if (event.matchedRules?.length) pieces.push(`<span class="badge css">CSS ${event.matchedRules.length}</span>`);
   if (event.frame && !event.frame.top) pieces.push('<span class="badge">iframe</span>');
   if (event.payload?.method) pieces.push(`<span class="badge">${safe(event.payload.method)}</span>`);
+  if (event.payload?.repeat > 1) pieces.push(`<span class="badge">x${event.payload.repeat}</span>`);
   return pieces.join('');
 }
 
@@ -465,7 +478,7 @@ function cssItems() {
 }
 
 function cssMatches(item) {
-  if (state.cssFilter !== 'all' && item.kind !== state.cssFilter) return false;
+  if (state.cssFilter !== 'all' && item.kind !== state.cssFilter && !(item.kinds || []).includes(state.cssFilter)) return false;
   const query = state.cssQuery.trim().toLowerCase();
   if (!query) return true;
   return `${item.name || ''} ${item.selector || ''} ${item.text || ''} ${item.sourceUrl || ''}`.toLowerCase().includes(query);
@@ -512,7 +525,7 @@ function renderStyles() {
     return `<section class="source-group ${collapsed ? 'collapsed' : ''}" data-source="${attr(sourceUrl)}">
       <button class="source-head" data-toggle-source="${attr(sourceUrl)}">
         <span class="source-icon">CSS</span>
-        <span class="source-title"><strong>${safe(shortUrl(sourceUrl, 58))}</strong><small>${items.length} 条动效规则</small></span>
+        <span class="source-title"><strong>${safe(displaySource(sourceUrl))}</strong><small>${items.length} 条动效规则</small></span>
         <span class="source-count">${items.length}</span>
       </button>
       <div class="source-body">${items.map(cssItemHtml).join('')}</div>
@@ -533,7 +546,7 @@ function cssItemHtml(item) {
       <pre class="code-block css">${safe(item.text || '')}</pre>
       <div class="code-actions">
         <button class="mini-btn" data-copy-key="${copyKey}">复制规则</button>
-        ${item.sourceUrl && /^https?:/i.test(item.sourceUrl) ? `<button class="mini-btn" data-open-url="${attr(item.sourceUrl)}">打开源码</button>` : ''}
+        ${item.sourceUrl && item.analysis?.sourceKind !== 'inline' && /^https?:/i.test(item.sourceUrl) ? `<button class="mini-btn" data-open-url="${attr(item.sourceUrl)}">打开源码</button>` : ''}
       </div>
     </div>
   </details>`;
@@ -575,7 +588,7 @@ function scriptGroupHtml(analysis) {
   return `<section class="source-group">
     <button class="source-head" data-toggle-source="js:${attr(analysis.id || source)}">
       <span class="source-icon js">&lt;/&gt;</span>
-      <span class="source-title"><strong>${safe(shortUrl(source, 58))}</strong><small>${analysis.sourceKind === 'inline' ? '内联脚本' : '外部脚本'} · ${fmtBytes(analysis.bytes || 0)} · ${analysis.lines || 0} 行</small></span>
+      <span class="source-title"><strong>${safe(displaySource(source))}</strong><small>${analysis.sourceKind === 'inline' ? '内联脚本' : '外部脚本'} · ${fmtBytes(analysis.bytes || 0)} · ${analysis.lines || 0} 行</small></span>
       <span class="script-score"><span class="score-track"><i class="score-fill" style="width:${score * 10}%"></i></span><span class="score-num">${score.toFixed(1)}</span></span>
     </button>
     <div class="source-body">
@@ -585,7 +598,7 @@ function scriptGroupHtml(analysis) {
       <div class="code-actions" style="padding:0 10px 10px">
         <button class="mini-btn" data-copy-key="${sourceCopy}">复制地址</button>
         ${fullSource}
-        ${/^https?:/i.test(source) ? `<button class="mini-btn" data-open-url="${attr(source)}">打开脚本</button>` : ''}
+        ${analysis.sourceKind !== 'inline' && /^https?:/i.test(source) ? `<button class="mini-btn" data-open-url="${attr(source)}">打开脚本</button>` : ''}
       </div>
     </div>
   </section>`;
