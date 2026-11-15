@@ -1,0 +1,8 @@
+﻿.external-motion {
+  transition: transform .45s cubic-bezier(.2,.8,.2,1), opacity .45s;
+  animation: external-pulse 2.8s ease-in-out infinite alternate;
+}
+@keyframes external-pulse {
+  from { opacity: .65; }
+  to { opacity: 1; }
+}

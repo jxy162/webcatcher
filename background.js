@@ -10,13 +10,14 @@ const MAX_SEEN_STYLES = 160;
 const PANEL_PORT = 'webcatcher-panel';
 
 const sessions = new Map();
+const loadingSessions = new Map();
 const saveTimers = new Map();
 const panelPorts = new Map();
 const sourceCache = new Map();
 const analysisCache = new Map();
 let fetchActive = 0;
 const fetchQueue = [];
-let badgeTimer = null;
+const badgeTimers = new Map();
 
 function makeSession(tabId) {
   const now = Date.now();
@@ -45,18 +46,27 @@ function storageKey(tabId) { return `${SESSION_PREFIX}${tabId}`; }
 
 async function loadSession(tabId) {
   if (sessions.has(tabId)) return sessions.get(tabId);
-  const key = storageKey(tabId);
-  let stored = null;
+  if (loadingSessions.has(tabId)) return loadingSessions.get(tabId);
+  const pending = (async () => {
+    const key = storageKey(tabId);
+    let stored = null;
+    try {
+      stored = (await chrome.storage.session.get(key))[key];
+    } catch (error) {
+      console.warn('[WebCatcher] session restore failed', error);
+    }
+    const session = stored || makeSession(tabId);
+    if (!session.inventory) session.inventory = makeSession(tabId).inventory;
+    if (!session.settings) session.settings = { recordRaf: true, captureStyles: true };
+    sessions.set(tabId, session);
+    return session;
+  })();
+  loadingSessions.set(tabId, pending);
   try {
-    stored = (await chrome.storage.session.get(key))[key];
-  } catch (error) {
-    console.warn('[WebCatcher] session restore failed', error);
+    return await pending;
+  } finally {
+    loadingSessions.delete(tabId);
   }
-  const session = stored || makeSession(tabId);
-  if (!session.inventory) session.inventory = makeSession(tabId).inventory;
-  if (!session.settings) session.settings = { recordRaf: true, captureStyles: true };
-  sessions.set(tabId, session);
-  return session;
 }
 
 function scheduleSave(session) {
@@ -90,6 +100,7 @@ async function persistSession(session) {
 
 async function deleteSession(tabId) {
   sessions.delete(tabId);
+  loadingSessions.delete(tabId);
   clearTimeout(saveTimers.get(tabId));
   saveTimers.delete(tabId);
   try { await chrome.storage.session.remove(storageKey(tabId)); } catch { /* ignore */ }
@@ -119,8 +130,11 @@ function publicSession(session) {
 }
 
 function scheduleBadge(tabId, session) {
-  clearTimeout(badgeTimer);
-  badgeTimer = setTimeout(() => updateBadge(tabId, session), 120);
+  clearTimeout(badgeTimers.get(tabId));
+  badgeTimers.set(tabId, setTimeout(() => {
+    badgeTimers.delete(tabId);
+    updateBadge(tabId, session);
+  }, 120));
 }
 
 async function updateBadge(tabId, session) {

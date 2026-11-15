@@ -10,6 +10,7 @@
   } catch { return; }
 
   const MAIN_SOURCE = 'webcatcher-main';
+  const PAGE_KEY = location.href.split('#')[0];
   const BRIDGE_SOURCE = 'webcatcher-bridge';
   const MOTION_RE = /(?:transition|animation|transform|translate|scale|rotate|offset-path|view-transition|will-change|scroll-timeline|view-timeline|perspective|filter|clip-path|cubic-bezier)/i;
   const MOTION_INLINE_PROPS = new Set([
@@ -36,6 +37,8 @@
   const inlineOwners = new WeakMap();
   const inlineStamp = new WeakMap();
   const styleRates = new WeakMap();
+  const scriptUrlCache = new WeakMap();
+  const linkUrlCache = new WeakMap();
   const classStamp = new WeakMap();
   const motionRuleCache = new WeakMap();
   const shadowRoots = new WeakSet();
@@ -1004,14 +1007,16 @@
         const type = (script.type || '').toLowerCase();
         if (type && !/javascript|ecmascript|module/.test(type)) continue;
         if (script.src) {
-          scripts.push({ src: script.src, inline: false });
+          let src = scriptUrlCache.get(script);
+          if (!src) { src = script.src; scriptUrlCache.set(script, src); }
+          scripts.push({ src, inline: false });
         } else {
           const text = script.textContent || '';
           if (!text.trim() || totalInline > 1_200_000) continue;
           const clipped = text.slice(0, 260_000);
           totalInline += clipped.length;
           index += 1;
-          scripts.push({ inline: true, text: clipped, label: `${location.href.split('#')[0]}#webcatcher-inline-script-${index}` });
+          scripts.push({ inline: true, text: clipped, label: `${PAGE_KEY}#webcatcher-inline-script-${index}` });
         }
       }
       for (const style of styleNodes) {
@@ -1022,12 +1027,16 @@
         const clipped = text.slice(0, 220_000);
         totalInline += clipped.length;
         index += 1;
-        styles.push({ inline: true, text: clipped, label: `${location.href.split('#')[0]}#webcatcher-inline-style-${index}`, media: style.media || '' });
+        styles.push({ inline: true, text: clipped, label: `${PAGE_KEY}#webcatcher-inline-style-${index}`, media: style.media || '' });
       }
       for (const link of linkNodes) {
         if (seenStyles.has(link)) continue;
         seenStyles.add(link);
-        if (link.href) styles.push({ inline: false, href: link.href, media: link.media || '' });
+        if (link.href) {
+          let href = linkUrlCache.get(link);
+          if (!href) { href = link.href; linkUrlCache.set(link, href); }
+          styles.push({ inline: false, href, media: link.media || '' });
+        }
       }
     }
 
@@ -1040,7 +1049,7 @@
           const text = serializeSheet(sheet);
           if (text && totalInline < 1_200_000) {
             totalInline += text.length;
-            styles.push({ inline: true, text: text.slice(0, 220_000), label: `${location.href.split('#')[0]}#webcatcher-cssom-${styles.length}`, media: sheet.media?.mediaText || '' });
+            styles.push({ inline: true, text: text.slice(0, 220_000), label: `${PAGE_KEY}#webcatcher-cssom-${styles.length}`, media: sheet.media?.mediaText || '' });
           }
         }
       }
@@ -1052,7 +1061,7 @@
           const text = serializeSheet(sheet);
           if (!text || totalInline > 1_200_000) continue;
           totalInline += text.length;
-          styles.push({ inline: true, text: text.slice(0, 220_000), label: location.href.split('#')[0] + '#webcatcher-adopted-style-' + styles.length });
+          styles.push({ inline: true, text: text.slice(0, 220_000), label: PAGE_KEY + '#webcatcher-adopted-style-' + styles.length });
         }
       } catch { /* ignore */ }
     }

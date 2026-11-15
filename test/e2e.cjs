@@ -1,6 +1,7 @@
 ﻿const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const assert = require('node:assert/strict');
 const puppeteer = require('puppeteer-core');
 
@@ -42,8 +43,10 @@ async function eventCount(panel) {
 (async () => {
   fs.mkdirSync(ARTIFACTS, { recursive: true });
   const server = await startServer();
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'webcatcher-e2e-'));
   const browser = await puppeteer.launch({
     executablePath: BROWSER,
+    userDataDir,
     headless: true,
     args: ['--no-first-run', '--no-default-browser-check', `--disable-extensions-except=${ROOT}`, `--load-extension=${ROOT}`],
   });
@@ -60,6 +63,7 @@ async function eventCount(panel) {
     await wait(1200);
     await page.click('#animate');
     await page.hover('#card');
+    await page.evaluate(() => history.pushState({ motion: true }, '', '/motion-route'));
     await wait(1000);
 
     const panel = await browser.newPage();
@@ -125,19 +129,21 @@ async function eventCount(panel) {
     await panel.evaluate(() => document.querySelector('[data-tab="styles"]').click());
     await wait(200);
     const cssGroups = await panel.evaluate(() => document.querySelectorAll('#cssList .source-group').length);
-    assert.ok(cssGroups >= 1, 'CSS source groups should render');
+    assert.ok(cssGroups >= 2, 'inline and external CSS source groups should render');
 
     await panel.evaluate(() => document.querySelector('[data-tab="scripts"]').click());
     await wait(200);
     const scriptGroups = await panel.evaluate(() => document.querySelectorAll('#jsList .source-group').length);
+    const scriptTitles = await panel.evaluate(() => [...document.querySelectorAll('#jsList .source-group')].map((group) => ({ title: group.querySelector('.source-title strong')?.textContent, meta: group.querySelector('.source-title small')?.textContent, notice: group.querySelector('.notice')?.textContent })));
     assert.ok(scriptGroups >= 2, 'inline and external script groups should render');
 
     assert.deepEqual(errors, []);
-    console.log(JSON.stringify({ extensionId, counts, beforePause, pausedAt, stillPaused, resumed, detail, cssGroups, scriptGroups }, null, 2));
+    console.log(JSON.stringify({ extensionId, counts, beforePause, pausedAt, stillPaused, resumed, detail, cssGroups, scriptGroups, scriptTitles }, null, 2));
     console.log('e2e ok');
   } finally {
     await browser.close();
     server.close();
+    fs.rmSync(userDataDir, { recursive: true, force: true });
   }
 })().catch((error) => {
   console.error(error);
