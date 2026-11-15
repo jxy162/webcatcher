@@ -286,6 +286,7 @@ async function watchActiveTab() {
     if (tab.title) state.page.title = tab.title;
     state.restricted = isRestricted(state.page.url);
     updatePage();
+    updateRecordingUI();
     return;
   }
   state.tabId = tab.id;
@@ -358,6 +359,7 @@ function handlePortMessage(message) {
     state.page = message.page || state.page;
     state.restricted = isRestricted(state.page.url);
     updatePage();
+    updateRecordingUI();
     return;
   }
   if (message.type === 'session:reset') {
