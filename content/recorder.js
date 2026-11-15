@@ -11,6 +11,7 @@
 
   const MAIN_SOURCE = 'webcatcher-main';
   const PAGE_KEY = location.href.split('#')[0];
+  const BASE_URI = document.baseURI;
   const BRIDGE_SOURCE = 'webcatcher-bridge';
   const MOTION_RE = /(?:transition|animation|transform|translate|scale|rotate|offset-path|view-transition|will-change|scroll-timeline|view-timeline|perspective|filter|clip-path|cubic-bezier)/i;
   const MOTION_INLINE_PROPS = new Set([
@@ -25,6 +26,7 @@
   const WATCHED_ATTRS = ['style', 'class', 'data-state', 'data-status', 'data-open', 'data-active', 'data-animate', 'data-scroll', 'aria-expanded'];
   const state = {
     active: true,
+    panelOpen: false,
     settings: { recordRaf: true, captureStyles: true },
     startedAt: Date.now(),
     queue: [],
@@ -41,15 +43,31 @@
   const linkUrlCache = new WeakMap();
   const classStamp = new WeakMap();
   const motionRuleCache = new WeakMap();
+  const computedCache = new WeakMap();
   const shadowRoots = new WeakSet();
   const observedRoots = new WeakSet();
   const animationRoots = new WeakSet();
   const styleTextStamp = new WeakMap();
   const rafCallbackStacks = new WeakMap();
   const rafStats = new Map();
+  const nativeEventRates = new Map();
+  const eventBudgets = new Map();
+
+  function takeBudget(name, limit) {
+    const stamp = now();
+    let budget = eventBudgets.get(name);
+    if (!budget || stamp - budget.window >= 1000) {
+      budget = { window: stamp, count: 0 };
+      eventBudgets.set(name, budget);
+    }
+    if (budget.count >= limit) return false;
+    budget.count += 1;
+    return true;
+  }
   const patchedGlobals = new WeakSet();
   let mutationObserver = null;
   let lastInventorySignature = '';
+  const LIGHT_KINDS = new Set(['transition', 'animation', 'waapi', 'view-transition', 'route', 'navigation', 'gsap', 'anime', 'library']);
 
   const now = () => Date.now();
   const clampText = (value, max = 900) => {
@@ -81,6 +99,7 @@
 
   function emit(kind, data = {}) {
     if (!state.active) return;
+    if (!state.panelOpen && !LIGHT_KINDS.has(kind)) return;
     state.seq += 1;
     const event = {
       id: `live-${state.seq}`,
@@ -91,21 +110,46 @@
       frame: { top: window === window.top, url: location.href, name: window.name || '' },
       ...data,
     };
+    if (!state.panelOpen) {
+      delete event.matchedRules;
+      if (event.stack) event.stack = '';
+      if (Array.isArray(event.keyframes) && event.keyframes.length > 3) event.keyframes = event.keyframes.slice(0, 3);
+      if (event.target) {
+        event.target = {
+          tag: event.target.tag,
+          id: event.target.id,
+          classes: event.target.classes,
+          selector: event.target.selector,
+        };
+      }
+      if (event.payload && typeof event.payload === 'object') {
+        if (Array.isArray(event.payload.keyframes)) event.payload.keyframes = event.payload.keyframes.slice(0, 2);
+        if (event.payload.args && JSON.stringify(event.payload.args).length > 900) event.payload.args = '[large payload omitted]';
+      }
+    }
     state.queue.push(event);
     if (state.queue.length >= 120) flush();
     else scheduleFlush();
   }
 
   function getStack() {
+    if (!state.panelOpen) return '';
     try {
       const raw = new Error().stack || '';
       return raw.split('\n')
         .slice(1)
         .map((line) => line.trim())
         .filter((line) => line && !/webcatcher|content\/recorder|chrome-extension:|extensions::/.test(line))
-        .slice(0, 9)
+        .slice(0, 7)
         .join('\n');
     } catch { return ''; }
+  }
+
+
+  function resourceUrl(element, attribute) {
+    const raw = element?.getAttribute?.(attribute) || '';
+    if (!raw) return '';
+    try { return new URL(raw, BASE_URI).href; } catch { return element?.[attribute] || raw; }
   }
 
   function selectorFor(element) {
@@ -117,7 +161,7 @@
       let part = node.localName || node.nodeName.toLowerCase();
       const classes = [...(node.classList || [])].filter(Boolean).slice(0, 3);
       if (classes.length) part += `.${classes.map(cssEscape).join('.')}`;
-      if (node.parentElement) {
+      if (!classes.length && node.parentElement) {
         const siblings = [...node.parentElement.children].filter((child) => child.localName === node.localName);
         if (siblings.length > 1) part += `:nth-of-type(${siblings.indexOf(node) + 1})`;
       }
@@ -132,7 +176,9 @@
   }
 
   function pickComputed(element) {
-    if (!(element instanceof Element) || !state.settings.captureStyles) return {};
+    if (!state.panelOpen || !(element instanceof Element) || !state.settings.captureStyles) return {};
+    const cached = computedCache.get(element);
+    if (cached && now() - cached.at < 350) return cached.value;
     try {
       const style = getComputedStyle(element);
       const keys = [
@@ -146,6 +192,7 @@
         const value = style[key];
         if (value && value !== 'none' && value !== 'normal' && value !== 'auto' && value !== '0s') result[key] = value;
       }
+      computedCache.set(element, { at: now(), value: result });
       return result;
     } catch { return {}; }
   }
@@ -154,19 +201,25 @@
     if (!element) return null;
     if (element.nodeType === 3) return { tag: '#text', text: clampText(element.data, 90) };
     if (element.nodeType !== 1) return { tag: element.nodeName || 'node' };
-    const rect = element.getBoundingClientRect?.();
-    const description = {
+    const base = {
       tag: element.localName || element.nodeName.toLowerCase(),
       id: element.id || '',
       classes: [...(element.classList || [])].slice(0, 8),
       selector: selectorFor(element),
-      text: clampText((element.innerText || element.textContent || '').trim(), 90),
+    };
+    if (!state.panelOpen) return base;
+    const rect = element.getBoundingClientRect?.();
+    const leafText = !element.children?.length || /^(a|button|p|span|h[1-6]|label|li|code|pre)$/i.test(element.localName || '');
+    const description = {
+      ...base,
+      text: leafText ? clampText((element.textContent || '').trim(), 90) : '',
       rect: rect ? { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) } : null,
       computed: pickComputed(element),
     };
     if (includeHtml) description.html = clampText(element.outerHTML, 600);
     return description;
   }
+
 
   function sanitize(value, depth = 0, seen = new WeakSet()) {
     if (value == null || typeof value === 'number' || typeof value === 'boolean') return value;
@@ -209,9 +262,9 @@
   const MOTION_RULE_RE = /(?:transition|animation|transform|translate|scale|rotate|offset-|view-transition|will-change|scroll-timeline|view-timeline|perspective|filter|clip-path)/i;
 
   function motionRulesFor(element) {
-    if (!state.settings.captureStyles || !(element instanceof Element)) return [];
+    if (!state.panelOpen || !state.settings.captureStyles || !(element instanceof Element)) return [];
     const cached = motionRuleCache.get(element);
-    if (cached && now() - cached.at < 1000) return cached.rules;
+    if (cached && now() - cached.at < 2500) return cached.rules;
     const rules = [];
     const visit = (ruleList, href) => {
       for (const rule of ruleList) {
@@ -250,7 +303,7 @@
     rate.total += 1;
     rates.set(property, rate);
     const shouldEmit = rate.total <= 3 || stamp - rate.lastEmit >= 1000;
-    if (!shouldEmit) return;
+    if (!shouldEmit || !takeBudget('style', 45)) return;
     const repeat = rate.total;
     rate.lastEmit = stamp;
     if (repeat > 3) rate.total = 0;
@@ -271,9 +324,13 @@
       const stack = getStack();
       const result = original.apply(this, arguments);
       if (!state.active) return result;
+      if (!state.panelOpen) {
+        emit('waapi', { summary: 'Element.animate()', target: describeElement(this), stack: '' });
+        return result;
+      }
       try {
         const effect = result?.effect;
-        const frames = effect?.getKeyframes?.().slice(0, 36);
+        const frames = effect?.getKeyframes?.().slice(0, 24);
         const timing = effect?.getTiming?.();
         emit('waapi', {
           summary: `Element.animate() · ${Array.isArray(frames) ? frames.length : 0} 个关键帧`,
@@ -320,7 +377,7 @@
   }
 
   function collectViewTransitionNames() {
-    if (!state.active || !state.settings.captureStyles) return [];
+    if (!state.active || !state.panelOpen || !state.settings.captureStyles) return [];
     const names = [];
     let scanned = 0;
     try {
@@ -328,7 +385,7 @@
         const name = getComputedStyle(element).viewTransitionName;
         if (name && name !== 'none' && !names.includes(name)) names.push(name);
         scanned += 1;
-        if (names.length >= 40 || scanned >= 3000) break;
+        if (names.length >= 24 || scanned >= 700) break;
       }
     } catch { /* ignore */ }
     return names;
@@ -423,7 +480,7 @@
     if (typeof originalSetProperty === 'function') {
       try {
         declarationProto.setProperty = function setProperty(property, value, priority) {
-          if (!state.active) return originalSetProperty.call(this, property, value, priority);
+          if (!state.active || !state.panelOpen) return originalSetProperty.call(this, property, value, priority);
           const previous = this.getPropertyValue(property);
           const result = originalSetProperty.call(this, property, value, priority);
           if (state.active && (MOTION_INLINE_PROPS.has(property) || property.startsWith('--')) && String(previous) !== String(this.getPropertyValue(property))) {
@@ -453,7 +510,7 @@
           enumerable: descriptor.enumerable,
           get: descriptor.get,
           set(value) {
-            if (!state.active) { descriptor.set.call(this, value); return; }
+            if (!state.active || !state.panelOpen) { descriptor.set.call(this, value); return; }
             const previous = descriptor.get ? descriptor.get.call(this) : this.getPropertyValue(property);
             descriptor.set.call(this, value);
             const current = descriptor.get ? descriptor.get.call(this) : this.getPropertyValue(property);
@@ -474,7 +531,7 @@
           enumerable: cssTextDescriptor.enumerable,
           get: cssTextDescriptor.get,
           set(value) {
-            if (!state.active) { cssTextDescriptor.set.call(this, value); return; }
+            if (!state.active || !state.panelOpen) { cssTextDescriptor.set.call(this, value); return; }
             const previous = cssTextDescriptor.get ? cssTextDescriptor.get.call(this) : '';
             cssTextDescriptor.set.call(this, value);
             if (state.active && MOTION_RE.test(String(value)) && state.settings.captureStyles) {
@@ -493,9 +550,10 @@
     if (typeof removeProperty === 'function') {
       try {
         declarationProto.removeProperty = function removePropertyWrapped(property) {
+          if (!state.active || !state.panelOpen) return removeProperty.call(this, property);
           const previous = this.getPropertyValue(property);
           const result = removeProperty.call(this, property);
-          if (state.active && MOTION_INLINE_PROPS.has(property)) {
+          if (state.active && state.panelOpen && MOTION_INLINE_PROPS.has(property)) {
             const owner = inlineOwners.get(this);
             if (owner && previous) emitStyleMutation(owner, 'removeProperty', property, '', previous, getStack());
           }
@@ -514,7 +572,7 @@
       try {
         proto[method] = function cssomMutation(...args) {
           const result = original.apply(this, args);
-          if (state.active && state.settings.captureStyles) {
+          if (state.active && state.panelOpen && state.settings.captureStyles) {
             const payload = method === 'insertRule' ? { rule: clampText(args[0], 1400), index: args[1] } : { index: args[0] };
             if (method === 'deleteRule' || MOTION_RE.test(String(args[0] || ''))) {
               emit('css-change', { summary: `CSSStyleSheet.${method}()`, payload: { method, ...payload }, stack: getStack() });
@@ -533,7 +591,7 @@
         proto[method] = function replaceStylesheets(...args) {
           const text = String(args[0] || '');
           const result = original.apply(this, args);
-          if (state.active && MOTION_RE.test(text)) {
+          if (state.active && state.panelOpen && MOTION_RE.test(text)) {
             emit('css-change', { summary: `CSSStyleSheet.${method}()`, payload: { method, text: clampText(text, 2600) }, stack: getStack() });
             scheduleInventory(500);
           }
@@ -552,7 +610,7 @@
           get: descriptor.get,
           set(value) {
             descriptor.set.call(this, value);
-            if (state.active) {
+            if (state.active && state.panelOpen) {
               emit('css-change', {
                 summary: `adoptedStyleSheets · ${value?.length || 0} 张表`,
                 payload: { method: 'adoptedStyleSheets', count: value?.length || 0, sheets: [...(value || [])].slice(0, 8).map((sheet) => [...(sheet.cssRules || [])].slice(0, 20).map((rule) => rule.cssText).join('\n')) },
@@ -570,7 +628,7 @@
     const original = window.requestAnimationFrame;
     if (typeof original !== 'function') return;
     window.requestAnimationFrame = function requestAnimationFrame(callback) {
-      if (typeof callback !== 'function') return original.call(this, callback);
+      if (!state.active || !state.panelOpen || !state.settings.recordRaf || typeof callback !== 'function') return original.call(this, callback);
       let stack = rafCallbackStacks.get(callback);
       if (stack == null) {
         stack = getStack();
@@ -587,7 +645,7 @@
   }
 
   function trackRaf(stack, duration) {
-    if (!state.active || !state.settings.recordRaf) return;
+    if (!state.active || !state.panelOpen || !state.settings.recordRaf) return;
     const key = stack || 'anonymous rAF';
     let entry = rafStats.get(key);
     if (!entry) {
@@ -646,7 +704,7 @@
         owner[method] = function smoothScroll(...args) {
           const options = args[0];
           const smooth = options && typeof options === 'object' && options.behavior === 'smooth';
-          if (smooth && state.active) {
+          if (smooth && state.active && state.panelOpen) {
             emit('scroll', { summary: `${label} · smooth`, payload: { method: label, args: sanitize(args) }, stack: getStack() });
           }
           return original.apply(this, args);
@@ -678,18 +736,21 @@
         if (typeof original !== 'function') continue;
         gsap[method] = function gsapMethod(target, ...rest) {
           const result = original.apply(this, [target, ...rest]);
-          if (state.active) {
+          if (state.active && state.panelOpen) {
             const vars = method === 'fromTo' ? rest[1] : rest[0];
+            const describedTarget = describeTarget(target);
             const payload = {
               method,
-              target: describeTarget(target),
+              target: describedTarget,
               vars: sanitize(vars),
               duration: vars?.duration,
               ease: vars?.ease,
               stagger: sanitize(vars?.stagger),
               scrollTrigger: sanitize(vars?.scrollTrigger),
             };
-            emit('gsap', { summary: `gsap.${method}()`, target: describeTarget(target), payload, stack: getStack() });
+            emit('gsap', { summary: `gsap.${method}()`, target: describedTarget, payload, stack: getStack() });
+          } else if (state.active) {
+            emit('gsap', { summary: `gsap.${method}()`, target: typeof target === 'string' ? { selector: target } : null, payload: { method }, stack: '' });
           }
           return result;
         };
@@ -701,9 +762,12 @@
           if (typeof original !== 'function' || original.__webcatcherPatched) continue;
           const wrapped = function timelineMethod(target, ...rest) {
             const result = original.apply(this, [target, ...rest]);
-            if (state.active) {
+            if (state.active && state.panelOpen) {
               const vars = method === 'fromTo' ? rest[1] : rest[0];
-              emit('gsap', { summary: `timeline.${method}()`, target: describeTarget(target), payload: { method: `timeline.${method}`, target: describeTarget(target), vars: sanitize(vars), duration: vars?.duration, ease: vars?.ease, scrollTrigger: sanitize(vars?.scrollTrigger) }, stack: getStack() });
+              const describedTarget = describeTarget(target);
+              emit('gsap', { summary: `timeline.${method}()`, target: describedTarget, payload: { method: `timeline.${method}`, target: describedTarget, vars: sanitize(vars), duration: vars?.duration, ease: vars?.ease, scrollTrigger: sanitize(vars?.scrollTrigger) }, stack: getStack() });
+            } else if (state.active) {
+              emit('gsap', { summary: `timeline.${method}()`, target: typeof target === 'string' ? { selector: target } : null, payload: { method: `timeline.${method}` }, stack: '' });
             }
             return result;
           };
@@ -719,7 +783,8 @@
     if (typeof anime !== 'function' || anime.__webcatcherPatched) return;
     const original = anime;
     const wrapped = function animeAnimation(...args) {
-      if (state.active) emit('anime', { summary: 'anime()', payload: { args: sanitize(args) }, stack: getStack() });
+      if (state.active && state.panelOpen) emit('anime', { summary: 'anime()', payload: { args: sanitize(args) }, stack: getStack() });
+      else if (state.active) emit('anime', { summary: 'anime()', payload: {}, stack: '' });
       return original.apply(this, args);
     };
     for (const key of Object.keys(original)) {
@@ -737,7 +802,7 @@
         if (typeof original !== 'function') continue;
         lottie[method] = function lottieMethod(...args) {
           if (state.active && method === 'loadAnimation') {
-            emit('library', { summary: 'lottie.loadAnimation()', payload: { method, args: sanitize(args) }, stack: getStack() });
+            emit('library', { summary: 'lottie.loadAnimation()', payload: state.panelOpen ? { method, args: sanitize(args) } : { method }, stack: getStack() });
           }
           return original.apply(this, args);
         };
@@ -798,6 +863,7 @@
     if (!(element instanceof Element)) return;
     const nowValue = element.className;
     if (String(oldValue) === String(nowValue)) return;
+    if (!takeBudget('class', 30)) return;
     const nowStamp = now();
     const last = classStamp.get(element) || 0;
     if (nowStamp - last < 80) return;
@@ -856,30 +922,28 @@
 
   function handleAddedNode(node) {
     if (!(node instanceof Element)) return;
-    const candidates = [];
-    if (node.matches?.('style,script,link[rel~="stylesheet"]')) candidates.push(node);
-    node.querySelectorAll?.('style,script,link[rel~="stylesheet"]').forEach((item) => candidates.push(item));
-    for (const item of candidates.slice(0, 12)) {
-      if (item.localName === 'style') {
-        const text = item.textContent || '';
-        emit('css-inject', { summary: `注入 <style> · ${clampText(text.replace(/\s+/g, ' ').trim(), 60)}`, payload: { text: clampText(text, 2400) }, stack: '' });
-      } else if (item.localName === 'script') {
-        emit('library', { summary: `注入 <script>${item.src ? ` · ${clampText(item.src, 54)}` : ''}`, payload: { src: item.src || '', inline: !item.src, text: item.src ? '' : clampText(item.textContent || '', 600) }, stack: '' });
-      } else {
-        emit('css-inject', { summary: `注入样式表 · ${clampText(item.href, 54)}`, payload: { href: item.href || '' }, stack: '' });
-      }
+    if (node.localName === 'style') {
+      const text = node.textContent || '';
+      emit('css-inject', { summary: `注入 <style> · ${clampText(text.replace(/\s+/g, ' ').trim(), 60)}`, payload: { text: clampText(text, 2400) }, stack: '' });
+    } else if (node.localName === 'script') {
+      emit('library', { summary: `注入 <script>${node.src ? ` · ${clampText(node.src, 54)}` : ''}`, payload: { src: node.src || '', inline: !node.src, text: node.src ? '' : clampText(node.textContent || '', 600) }, stack: '' });
+    } else if (node.localName === 'link' && /stylesheet/i.test(node.rel || '')) {
+      emit('css-inject', { summary: `注入样式表 · ${clampText(node.href, 54)}`, payload: { href: node.href || '' }, stack: '' });
     }
-    scheduleInventory(450);
+    scheduleInventory(900);
   }
 
   function handleMutations(records) {
-    if (!state.active) return;
+    if (!state.active || !state.panelOpen) return;
     for (const record of records) {
       if (record.type === 'attributes') {
         handleAttributeMutation(record);
       } else if (record.type === 'childList') {
-        for (const node of record.addedNodes) handleAddedNode(node);
-        if (record.addedNodes.length) scheduleInventory(450);
+        for (const node of record.addedNodes) {
+          if (node instanceof Element && (node.localName === 'style' || node.localName === 'script' || (node.localName === 'link' && /stylesheet/i.test(node.rel || '')))) {
+            handleAddedNode(node);
+          }
+        }
       } else if (record.type === 'characterData' && record.target?.parentElement?.localName === 'style') {
         const styleNode = record.target.parentElement;
         const stamp = styleTextStamp.get(styleNode) || 0;
@@ -887,10 +951,11 @@
           styleTextStamp.set(styleNode, now());
           emit('css-inject', { summary: '更新 <style> 内容', payload: { text: clampText(styleNode.textContent || '', 2400) }, stack: '' });
         }
-        scheduleInventory(500);
+        scheduleInventory(900);
       }
     }
   }
+
 
   function startMutationObserver() {
     if (!window.MutationObserver) return;
@@ -939,30 +1004,52 @@
     }
   }
 
+  function allowNativeEvent(key, limit = 8) {
+    const stamp = now();
+    let entry = nativeEventRates.get(key);
+    if (!entry || stamp - entry.window >= 1000) {
+      entry = { window: stamp, count: 0 };
+      nativeEventRates.set(key, entry);
+    }
+    if (entry.count >= limit) return false;
+    entry.count += 1;
+    if (nativeEventRates.size > 240) {
+      const oldest = nativeEventRates.keys().next().value;
+      nativeEventRates.delete(oldest);
+    }
+    return true;
+  }
+
   function handleAnimationEvent(event) {
     if (!state.active) return;
     const element = event.target;
     if (!(element instanceof Element)) return;
+    const visualName = event.animationName || event.propertyName || '';
+    const visualClasses = [...(element.classList || [])].slice(0, 2).join('.');
+    const rateKey = `${event.type}|${visualName}|${element.localName}.${visualClasses}`;
+    if (!allowNativeEvent(rateKey, event.type === 'animationiteration' ? 4 : 8) || !takeBudget('native', 90)) return;
     if (event.type.startsWith('transition')) {
       emit('transition', {
         summary: `${event.type} · ${event.propertyName || 'transition'}`,
         target: describeElement(element),
         payload: { event: event.type, propertyName: event.propertyName || '', elapsedTime: event.elapsedTime, pseudoElement: event.pseudoElement || '' },
-        matchedRules: motionRulesFor(element),
+        matchedRules: state.panelOpen ? motionRulesFor(element) : [],
         stack: '',
       });
       return;
     }
     let keyframes = [];
-    try {
-      const animation = element.getAnimations?.().find((item) => item.animationName === event.animationName);
-      keyframes = animation?.effect?.getKeyframes?.().slice(0, 24) || [];
-    } catch { /* ignore */ }
+    if (state.panelOpen) {
+      try {
+        const animation = element.getAnimations?.().find((item) => item.animationName === event.animationName);
+        keyframes = animation?.effect?.getKeyframes?.().slice(0, 24) || [];
+      } catch { /* ignore */ }
+    }
     emit('animation', {
       summary: `${event.type} · ${event.animationName || 'animation'}`,
       target: describeElement(element),
-      payload: { event: event.type, animationName: event.animationName || '', elapsedTime: event.elapsedTime, pseudoElement: event.pseudoElement || '', keyframes: sanitize(keyframes) },
-      matchedRules: motionRulesFor(element),
+      payload: { event: event.type, animationName: event.animationName || '', elapsedTime: event.elapsedTime, pseudoElement: event.pseudoElement || '', keyframes: state.panelOpen ? sanitize(keyframes) : [] },
+      matchedRules: state.panelOpen ? motionRulesFor(element) : [],
       stack: '',
     });
   }
@@ -1016,9 +1103,9 @@
         seenScripts.add(script);
         const type = (script.type || '').toLowerCase();
         if (type && !/javascript|ecmascript|module/.test(type)) continue;
-        if (script.src) {
+        if (script.getAttribute('src')) {
           let src = scriptUrlCache.get(script);
-          if (!src) { src = script.src; scriptUrlCache.set(script, src); }
+          if (!src) { src = resourceUrl(script, 'src'); scriptUrlCache.set(script, src); }
           scripts.push({ src, inline: false });
         } else {
           const text = script.textContent || '';
@@ -1042,9 +1129,9 @@
       for (const link of linkNodes) {
         if (seenStyles.has(link)) continue;
         seenStyles.add(link);
-        if (link.href) {
+        if (link.getAttribute('href')) {
           let href = linkUrlCache.get(link);
-          if (!href) { href = link.href; linkUrlCache.set(link, href); }
+          if (!href) { href = resourceUrl(link, 'href'); linkUrlCache.set(link, href); }
           styles.push({ inline: false, href, media: link.media || '' });
         }
       }
@@ -1087,26 +1174,26 @@
       type: 'inventory',
       inventory: {
         page: { url: location.href, title: document.title || '' },
-        scripts: scripts.slice(0, 180),
-        styles: styles.slice(0, 120),
-        animations: snapshotAnimations(),
+        scripts: scripts.slice(0, 100),
+        styles: styles.slice(0, 60),
       },
     });
   }
 
   function snapshotAnimations() {
+    if (!state.panelOpen) return [];
     let animations = [];
     try { animations = document.getAnimations ? document.getAnimations({ subtree: true }) : []; }
     catch {
       try { animations = document.getAnimations ? document.getAnimations() : []; } catch { animations = []; }
     }
     const result = [];
-    for (const animation of animations.slice(0, 28)) {
+    for (const animation of animations.slice(0, 20)) {
       try {
         const effect = animation.effect;
         const target = effect?.target;
         const timing = effect?.getTiming?.() || {};
-        const keyframes = effect?.getKeyframes?.().slice(0, 12) || [];
+        const keyframes = effect?.getKeyframes?.().slice(0, 8) || [];
         result.push({
           kind: animation.constructor?.name || 'Animation',
           animationName: animation.animationName || '',
@@ -1126,11 +1213,12 @@
   }
 
   function sendSnapshot() {
-    if (!state.active) return;
+    if (!state.active || !state.panelOpen) return;
     post({ type: 'snapshot', snapshot: { animations: snapshotAnimations(), at: now() } });
   }
 
-  function scheduleInventory(delay = 700) {
+  function scheduleInventory(delay = 700, force = false) {
+    if (!force && !state.panelOpen) return;
     if (state.inventoryTimer) clearTimeout(state.inventoryTimer);
     state.inventoryTimer = setTimeout(() => {
       state.inventoryTimer = 0;
@@ -1154,8 +1242,8 @@
     setTimeout(() => scheduleInventory(0), 1800);
     document.addEventListener('DOMContentLoaded', () => scheduleInventory(150), { once: true });
     window.addEventListener('load', () => scheduleInventory(200), { once: true });
-    setInterval(sendSnapshot, 2000);
-    setInterval(() => scheduleInventory(2500), 8000);
+    setInterval(sendSnapshot, 3000);
+    setInterval(() => scheduleInventory(2500), 15000);
   }
 
   window.addEventListener('message', (event) => {
@@ -1164,26 +1252,30 @@
     if (!data || data.source !== BRIDGE_SOURCE) return;
     if (data.type === 'state') {
       const wasActive = state.active;
+      const wasPanelOpen = state.panelOpen;
       state.active = data.active !== false;
+      state.panelOpen = data.panelOpen === true && window === window.top;
       if (data.settings) state.settings = { ...state.settings, ...data.settings };
       if (Number.isFinite(data.startedAt)) state.startedAt = data.startedAt;
-      if (state.active && !wasActive) {
-        sendSnapshot();
-        scheduleInventory(50);
-      } else if (!state.active && wasActive) {
-        flush(true);
+      const opened = !wasPanelOpen && state.panelOpen;
+      if (opened || (state.active && !wasActive)) {
+        lastInventorySignature = '';
+        scheduleInventory(50, true);
+        if (state.active) sendSnapshot();
       }
+      if (!state.active && wasActive) flush(true);
+    } else if (data.type === 'action') {
     } else if (data.type === 'action') {
       if (data.action === 'rescan') {
         lastInventorySignature = '';
-        scheduleInventory(0);
+        scheduleInventory(0, true);
         sendSnapshot();
       } else if (data.action === 'clear') {
         state.queue.length = 0;
         state.seq = 0;
         rafStats.clear();
         lastInventorySignature = '';
-        scheduleInventory(0);
+        scheduleInventory(0, true);
         sendSnapshot();
       } else if (data.action === 'flush') {
         flush(true);

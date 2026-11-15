@@ -3,6 +3,7 @@
   const MAIN_SOURCE = 'webcatcher-main';
   const BRIDGE_SOURCE = 'webcatcher-bridge';
   let active = true;
+  let panelOpen = false;
   let settings = { recordRaf: true, captureStyles: true };
   let startedAt = Date.now();
   let helloDone = false;
@@ -23,7 +24,8 @@
     if (typeof response.active === 'boolean') active = response.active;
     if (response.settings) settings = response.settings;
     if (Number.isFinite(response.startedAt)) startedAt = response.startedAt;
-    toMain({ type: 'state', active, settings, startedAt });
+    if (typeof response.panelOpen === 'boolean') panelOpen = response.panelOpen;
+    toMain({ type: 'state', active, settings, startedAt, panelOpen });
   };
 
   const hello = () => {
@@ -55,7 +57,8 @@
     if (message.type === 'webcatcher:state') {
       if (typeof message.active === 'boolean') active = message.active;
       if (message.settings) settings = message.settings;
-      toMain({ type: 'state', active, settings, startedAt });
+      if (typeof message.panelOpen === 'boolean') panelOpen = message.panelOpen;
+      toMain({ type: 'state', active, settings, startedAt, panelOpen });
       sendResponse?.({ ok: true });
     } else if (message.type === 'webcatcher:action') {
       toMain({ type: 'action', action: message.action });

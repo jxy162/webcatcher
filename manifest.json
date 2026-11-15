@@ -2,11 +2,19 @@
   "manifest_version": 3,
   "name": "WebCatcher · 动效捕手",
   "short_name": "WebCatcher",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "实时捕获网页里的 CSS 动画、JS 动效、Web Animations API 与页面转场实现。",
   "minimum_chrome_version": "114",
-  "permissions": ["sidePanel", "storage", "scripting", "tabs", "activeTab"],
-  "host_permissions": ["<all_urls>"],
+  "permissions": [
+    "sidePanel",
+    "storage",
+    "scripting",
+    "tabs",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "background": {
     "service_worker": "background.js",
     "type": "module"
@@ -31,15 +39,23 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content/bridge.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content/bridge.js"
+      ],
       "run_at": "document_start",
       "all_frames": true,
       "world": "ISOLATED"
     },
     {
-      "matches": ["<all_urls>"],
-      "js": ["content/recorder.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content/recorder.js"
+      ],
       "run_at": "document_start",
       "all_frames": true,
       "world": "MAIN"

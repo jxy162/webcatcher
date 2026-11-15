@@ -91,6 +91,9 @@ const state = {
   collapsedSources: new Set(),
   seenSources: new Set(),
   copyStore: new Map(),
+  copyKeys: new Map(),
+  cssTotal: 0,
+  timelineTimer: 0,
   detailEvent: null,
   toastTimer: 0,
   timelineRaf: 0,
@@ -124,8 +127,18 @@ function pretty(value) {
   try { return JSON.stringify(value, null, 2); } catch { return String(value); }
 }
 function rememberCopy(text) {
+  const value = String(text ?? '');
+  const existing = state.copyKeys.get(value);
+  if (existing) return existing;
   const key = `copy-${state.copyStore.size + 1}`;
-  state.copyStore.set(key, String(text ?? ''));
+  state.copyStore.set(key, value);
+  state.copyKeys.set(value, key);
+  if (state.copyStore.size > 160) {
+    const oldest = state.copyStore.keys().next().value;
+    const oldValue = state.copyStore.get(oldest);
+    state.copyStore.delete(oldest);
+    state.copyKeys.delete(oldValue);
+  }
   return key;
 }
 function displaySource(url) {
@@ -215,6 +228,11 @@ function resetLocal() {
   state.pendingNew = 0;
   state.pinned = true;
   state.newSeqs.clear();
+  state.copyStore.clear();
+  state.copyKeys.clear();
+  state.cssTotal = 0;
+  clearTimeout(state.timelineTimer);
+  state.timelineTimer = 0;
   state.detailEvent = null;
   document.body.classList.remove('drawer-open');
   els.detailDrawer.setAttribute('aria-hidden', 'true');
@@ -227,8 +245,11 @@ function ingestSession(session) {
   state.page = session.page || { url: '', title: '' };
   state.active = session.active !== false;
   state.settings = session.settings || state.settings;
-  state.events = Array.isArray(session.events) ? session.events : [];
-  for (const analysis of session.analyses?.css || []) state.css.set(analysis.id || analysis.sourceUrl, analysis);
+  state.events = Array.isArray(session.events) ? session.events.slice(-1600) : [];
+  for (const analysis of session.analyses?.css || []) {
+    state.css.set(analysis.id || analysis.sourceUrl, analysis);
+    state.cssTotal += analysis.items?.length || 0;
+  }
   for (const analysis of session.analyses?.js || []) state.js.set(analysis.id || analysis.sourceUrl, analysis);
   state.snapshot = session.snapshot || null;
   state.restricted = isRestricted(state.page.url);
@@ -238,9 +259,9 @@ function ingestSession(session) {
   updateCounts();
   updateTape();
   renderTimeline(true);
-  renderStyles();
-  renderScripts();
-  renderLive();
+  if (state.activeTab === 'styles') renderStyles();
+  if (state.activeTab === 'scripts') renderScripts();
+  if (state.activeTab === 'live') renderLive();
   if (state.restricted) {
     setConnection('error', '此页面不可捕获');
     els.timelineEmpty.hidden = false;
@@ -315,10 +336,9 @@ function handlePortMessage(message) {
       state.newSeqs.add(event.seq);
     }
     setTimeout(() => state.newSeqs.clear(), 1200);
-    if (state.events.length > 4200) state.events.splice(0, state.events.length - 4200);
+    if (state.events.length > 1600) state.events.splice(0, state.events.length - 1600);
     state.startedAt = state.startedAt || Date.now();
     updateCounts();
-    updateTape();
     if (!state.pinned) {
       state.pendingNew += incoming.length;
       els.newEventsBtn.hidden = false;
@@ -330,17 +350,30 @@ function handlePortMessage(message) {
     return;
   }
   if (message.type === 'analysis:patch') {
-    for (const analysis of message.css || []) state.css.set(analysis.id || analysis.sourceUrl, analysis);
+    for (const analysis of message.css || []) {
+      const key = analysis.id || analysis.sourceUrl;
+      const previous = state.css.get(key);
+      if (previous) state.cssTotal -= previous.items?.length || 0;
+      state.css.set(key, analysis);
+      state.cssTotal += analysis.items?.length || 0;
+    }
     for (const analysis of message.js || []) state.js.set(analysis.id || analysis.sourceUrl, analysis);
+    while (state.css.size > 100) {
+      const oldestKey = state.css.keys().next().value;
+      const oldest = state.css.get(oldestKey);
+      state.cssTotal -= oldest?.items?.length || 0;
+      state.css.delete(oldestKey);
+    }
+    while (state.js.size > 80) state.js.delete(state.js.keys().next().value);
     updateCounts();
-    renderStyles();
-    renderScripts();
+    if (state.activeTab === 'styles') renderStyles();
+    if (state.activeTab === 'scripts') renderScripts();
     return;
   }
   if (message.type === 'snapshot') {
     state.snapshot = message.snapshot || null;
     state.lastSnapshotAt = Date.now();
-    renderLive();
+    if (state.activeTab === 'live') renderLive();
     updateCounts();
     return;
   }
@@ -374,7 +407,7 @@ function handlePortMessage(message) {
 
 function updateCounts() {
   const totalEvents = state.events.length;
-  const cssTotal = [...state.css.values()].reduce((sum, analysis) => sum + (analysis.items?.length || 0), 0);
+  const cssTotal = state.cssTotal;
   els.eventCount.textContent = totalEvents.toLocaleString('zh-CN');
   els.timelineCount.textContent = totalEvents > 999 ? '999+' : String(totalEvents);
   els.cssCount.textContent = cssTotal > 999 ? '999+' : String(cssTotal);
@@ -386,7 +419,7 @@ function updateCounts() {
 function updateTape() {
   const now = Date.now();
   const windowMs = 60000;
-  const recent = state.events.filter((event) => Number.isFinite(event.ts) && now - event.ts <= windowMs).slice(-160);
+  const recent = state.events.filter((event) => Number.isFinite(event.ts) && now - event.ts <= windowMs).slice(-80);
   const ticks = recent.map((event) => {
     const left = Math.max(0, Math.min(99.5, 100 - ((now - event.ts) / windowMs) * 100));
     const group = groupOf(event.kind);
@@ -446,17 +479,17 @@ function eventRow(event) {
 }
 
 function scheduleTimelineRender() {
-  if (state.timelineRaf) return;
-  state.timelineRaf = requestAnimationFrame(() => {
-    state.timelineRaf = 0;
+  if (state.activeTab !== 'timeline' || state.timelineTimer) return;
+  state.timelineTimer = setTimeout(() => {
+    state.timelineTimer = 0;
     renderTimeline();
-  });
+  }, 260);
 }
 
 function renderTimeline(force = false) {
   if (!force && !state.pinned) return;
   const filtered = state.events.filter(eventMatches);
-  const shown = filtered.slice(-260).reverse();
+  const shown = filtered.slice(-150).reverse();
   els.timelineList.innerHTML = shown.map(eventRow).join('');
   const isEmpty = shown.length === 0;
   els.timelineEmpty.hidden = !isEmpty;
@@ -909,7 +942,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   }
 });
 
-setInterval(tickClock, 500);
+setInterval(tickClock, 1000);
 setInterval(() => {
   if (state.snapshot?.at) els.liveUpdated.textContent = `上次采样 · ${timeAgo(state.snapshot.at)}`;
 }, 5000);

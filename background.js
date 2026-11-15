@@ -2,11 +2,12 @@ import { analyzeCss, simpleHash } from './lib/css-parser.js';
 import { analyzeJs } from './lib/js-analyzer.js';
 
 const SESSION_PREFIX = 'webcatcher:session:';
-const MAX_EVENTS = 3200;
-const MAX_CSS_ANALYSES = 180;
-const MAX_JS_ANALYSES = 140;
-const MAX_SEEN_SCRIPTS = 260;
-const MAX_SEEN_STYLES = 160;
+const MAX_EVENTS = 1600;
+const LITE_MAX_EVENTS = 250;
+const MAX_CSS_ANALYSES = 80;
+const MAX_JS_ANALYSES = 60;
+const MAX_SEEN_SCRIPTS = 160;
+const MAX_SEEN_STYLES = 100;
 const PANEL_PORT = 'webcatcher-panel';
 
 const sessions = new Map();
@@ -15,6 +16,10 @@ const saveTimers = new Map();
 const panelPorts = new Map();
 const sourceCache = new Map();
 const analysisCache = new Map();
+let sourceCacheBytes = 0;
+let analysisCacheBytes = 0;
+const SOURCE_CACHE_LIMIT = 8 * 1024 * 1024;
+const ANALYSIS_CACHE_LIMIT = 14 * 1024 * 1024;
 let fetchActive = 0;
 const fetchQueue = [];
 const badgeTimers = new Map();
@@ -71,27 +76,32 @@ async function loadSession(tabId) {
 
 function scheduleSave(session) {
   clearTimeout(saveTimers.get(session.tabId));
-  saveTimers.set(session.tabId, setTimeout(() => persistSession(session), 550));
+  saveTimers.set(session.tabId, setTimeout(() => persistSession(session), 1500));
 }
 
 async function persistSession(session) {
   saveTimers.delete(session.tabId);
   const key = storageKey(session.tabId);
+  const storedEvents = session.events.slice(-700).map((event) => {
+    const copy = { ...event };
+    compactEvent(copy, true);
+    return copy;
+  });
   const compact = {
     ...session,
-    events: session.events.slice(-MAX_EVENTS),
+    events: storedEvents,
     analyses: {
-      css: session.analyses.css.slice(-MAX_CSS_ANALYSES).map((item) => ({ ...item })),
-      js: session.analyses.js.slice(-MAX_JS_ANALYSES).map((item) => ({ ...item })),
+      css: session.analyses.css.slice(-40).map((item) => ({ ...item, source: undefined })),
+      js: session.analyses.js.slice(-40).map((item) => ({ ...item, source: undefined })),
     },
   };
   try {
     await chrome.storage.session.set({ [key]: compact });
   } catch (error) {
     console.warn('[WebCatcher] session quota reached, trimming', error);
-    compact.events = compact.events.slice(-900);
-    compact.analyses.css = compact.analyses.css.slice(-45);
-    compact.analyses.js = compact.analyses.js.slice(-35);
+    compact.events = compact.events.slice(-250);
+    compact.analyses.css = compact.analyses.css.slice(-20);
+    compact.analyses.js = compact.analyses.js.slice(-20);
     compact.analyses.css.forEach((item) => { delete item.source; });
     compact.analyses.js.forEach((item) => { delete item.source; });
     try { await chrome.storage.session.set({ [key]: compact }); } catch (again) { console.warn('[WebCatcher] session persist failed', again); }
@@ -111,6 +121,25 @@ function broadcast(tabId, message) {
     if (info.tabId !== tabId) continue;
     try { port.postMessage(message); } catch { panelPorts.delete(port); }
   }
+}
+
+function hasPanel(tabId) {
+  for (const info of panelPorts.values()) {
+    if (info.tabId === tabId) return true;
+  }
+  return false;
+}
+
+async function sendStateToTab(tabId) {
+  const session = await loadSession(tabId);
+  try {
+    await chrome.tabs.sendMessage(tabId, {
+      type: 'webcatcher:state',
+      active: session.active,
+      settings: session.settings,
+      panelOpen: hasPanel(tabId),
+    });
+  } catch { /* restricted tab */ }
 }
 
 function publicSession(session) {
@@ -158,9 +187,10 @@ async function setActive(tabId, active) {
   else session.pausedAt = Date.now();
   scheduleSave(session);
   scheduleBadge(tabId, session);
-  broadcast(tabId, { type: 'state', active: session.active, settings: session.settings });
+  const panelOpen = hasPanel(tabId);
+  broadcast(tabId, { type: 'state', active: session.active, settings: session.settings, panelOpen });
   try {
-    await chrome.tabs.sendMessage(tabId, { type: 'webcatcher:state', active: session.active, settings: session.settings });
+    await chrome.tabs.sendMessage(tabId, { type: 'webcatcher:state', active: session.active, settings: session.settings, panelOpen });
   } catch { /* restricted tab */ }
   return session;
 }
@@ -180,6 +210,30 @@ async function clearSession(tabId) {
   return session;
 }
 
+function compactEvent(event, hard = false) {
+  if (!event || event._compact) return;
+  event._compact = true;
+  if (event.stack) {
+    event.stack = event.stack.split('\n').slice(0, hard ? 2 : 3).join('\n');
+  }
+  if (Array.isArray(event.matchedRules)) {
+    if (hard) delete event.matchedRules;
+    else event.matchedRules = event.matchedRules.slice(0, 1).map((rule) => ({ ...rule, text: String(rule.text || '').slice(0, 600) }));
+  }
+  if (Array.isArray(event.keyframes)) event.keyframes = event.keyframes.slice(0, hard ? 3 : 6);
+  if (event.target) {
+    event.target = { ...event.target, computed: hard ? {} : event.target.computed };
+    delete event.target.html;
+  }
+  if (event.payload) {
+    event.payload = { ...event.payload };
+    if (Array.isArray(event.payload.keyframes)) event.payload.keyframes = event.payload.keyframes.slice(0, 4);
+    if (event.payload.sheets) delete event.payload.sheets;
+    if (event.payload.args && JSON.stringify(event.payload.args).length > 1000) event.payload.args = '[large payload omitted]';
+    if (hard) delete event.payload.text;
+  }
+}
+
 function addEvent(session, event) {
   if (!event || typeof event !== 'object') return;
   session.eventSeq += 1;
@@ -191,15 +245,24 @@ function addEvent(session, event) {
     t: Math.max(0, eventTs - session.startedAt),
     ts: eventTs,
   };
-  if (typeof normalized.stack === 'string' && normalized.stack.length > 6500) normalized.stack = `${normalized.stack.slice(0, 6500)}\n…`;
+  if (typeof normalized.stack === 'string' && normalized.stack.length > 4000) normalized.stack = `${normalized.stack.slice(0, 4000)}\n…`;
   session.events.push(normalized);
-  if (session.events.length > MAX_EVENTS) {
-    const overflow = session.events.length - MAX_EVENTS;
+  const panelOpen = hasPanel(session.tabId);
+  const fullDetail = panelOpen && event.frame?.top !== false;
+  const maxEvents = fullDetail ? MAX_EVENTS : LITE_MAX_EVENTS;
+  if (session.events.length > maxEvents) {
+    const overflow = session.events.length - maxEvents;
     session.events.splice(0, overflow);
     session.dropped += overflow;
   }
+  const keepFull = fullDetail ? 500 : 80;
+  if (session.events.length > keepFull + 140 && session.events.length % 50 === 0) {
+    const cutoff = session.events.length - keepFull;
+    for (let i = 0; i < cutoff; i += 1) compactEvent(session.events[i]);
+  }
   return normalized;
 }
+
 
 function normalizeUrl(raw) {
   if (!raw) return '';
@@ -264,12 +327,37 @@ async function fetchText(url, maxBytes = 1_800_000) {
 }
 
 function rememberSource(key, result) {
+  const previous = sourceCache.get(key);
+  if (previous) sourceCacheBytes -= previous.text.length;
   sourceCache.set(key, result);
-  if (sourceCache.size > 90) {
+  sourceCacheBytes += result.text.length;
+  while (sourceCache.size > 40 || sourceCacheBytes > SOURCE_CACHE_LIMIT) {
     const oldest = sourceCache.keys().next().value;
+    if (oldest === undefined) break;
+    const evicted = sourceCache.get(oldest);
     sourceCache.delete(oldest);
+    sourceCacheBytes -= evicted?.text?.length || 0;
   }
 }
+
+function rememberAnalysis(key, value) {
+  const roughBytes = (value.items || []).reduce((sum, item) => sum + (item.text?.length || 0), 0)
+    + (value.snippets || []).reduce((sum, item) => sum + (item.code?.length || 0), 0)
+    + (value.source?.length || 0);
+  const previous = analysisCache.get(key);
+  if (previous) analysisCacheBytes -= previous._bytes || 0;
+  value._bytes = roughBytes;
+  analysisCache.set(key, value);
+  analysisCacheBytes += roughBytes;
+  while (analysisCache.size > 100 || analysisCacheBytes > ANALYSIS_CACHE_LIMIT) {
+    const oldest = analysisCache.keys().next().value;
+    if (oldest === undefined) break;
+    const evicted = analysisCache.get(oldest);
+    analysisCache.delete(oldest);
+    analysisCacheBytes -= evicted?._bytes || 0;
+  }
+}
+
 
 function enqueueFetch(task) {
   return new Promise((resolve, reject) => {
@@ -296,7 +384,7 @@ function analysisForCss(url, text, sourceKind) {
   const cacheKey = `css:${sourceKind}:${url}:${text.length}:${simpleHash(text.slice(0, 3000))}`;
   const cached = analysisCache.get(cacheKey);
   if (cached) return cached;
-  const result = analyzeCss(text, url, { maxItems: 320 });
+  const result = analyzeCss(text, url, { maxItems: 220 });
   const analysis = {
     id: simpleHash(cacheKey),
     sourceUrl: url,
@@ -305,8 +393,7 @@ function analysisForCss(url, text, sourceKind) {
     metrics: result.metrics,
     truncated: text.length >= 1_800_000,
   };
-  analysisCache.set(cacheKey, analysis);
-  if (analysisCache.size > 180) analysisCache.delete(analysisCache.keys().next().value);
+  rememberAnalysis(cacheKey, analysis);
   return analysis;
 }
 
@@ -323,8 +410,7 @@ function analysisForJs(item, text) {
   if (!result) return null;
   result.id = simpleHash(cacheKey);
   result.truncated = text.length >= 2_400_000;
-  analysisCache.set(cacheKey, result);
-  if (analysisCache.size > 220) analysisCache.delete(analysisCache.keys().next().value);
+  rememberAnalysis(cacheKey, result);
   return result;
 }
 
@@ -340,7 +426,7 @@ function forgetSeen(session, listName, key) {
 }
 
 async function processInventory(tabId, inventory, sender) {
-  if (!Number.isInteger(tabId)) return;
+  if (!Number.isInteger(tabId) || !hasPanel(tabId)) return;
   const session = await loadSession(tabId);
   if (!inventory || typeof inventory !== 'object') return;
   session.inventory.lastScanAt = Date.now();
@@ -359,7 +445,7 @@ async function processInventory(tabId, inventory, sender) {
   const seenScripts = new Set(session.inventory.seenScripts);
   const seenStyles = new Set(session.inventory.seenStyles);
 
-  for (const style of (inventory.styles || []).slice(0, 140)) {
+  for (const style of (inventory.styles || []).slice(0, 80)) {
     const key = style.inline
       ? `inline:${style.label || ''}:${simpleHash(style.text || '')}`
       : normalizeUrl(style.href);
@@ -384,7 +470,7 @@ async function processInventory(tabId, inventory, sender) {
     }
   }
 
-  for (const script of (inventory.scripts || []).slice(0, 200)) {
+  for (const script of (inventory.scripts || []).slice(0, 120)) {
     const key = script.inline
       ? `inline:${script.label || ''}:${simpleHash(script.text || '')}`
       : normalizeUrl(script.src);
@@ -398,7 +484,7 @@ async function processInventory(tabId, inventory, sender) {
         const analysis = analysisForJs(script, script.text || '');
         if (analysis) newJs.push(analysis);
       } catch (error) { addInventoryError(session, url, error.message); }
-    } else if (canFetch(url)) {
+    } else if (canFetch(url) && !/(analytics|gtag|googletagmanager|doubleclick|sentry|hotjar|clarity|segment|mixpanel)/i.test(url)) {
       jsJobs.push(async () => {
         try {
           const fetched = await enqueueFetch(() => fetchText(url, 2_400_000));
@@ -420,6 +506,7 @@ async function processInventory(tabId, inventory, sender) {
   session.inventory.seenStyles = session.inventory.seenStyles.slice(-MAX_SEEN_STYLES);
 
   await Promise.all([...cssJobs, ...jsJobs].map((job) => job()));
+  if (!hasPanel(tabId)) return;
 
   const uniqueCss = [];
   const cssIds = new Set(session.analyses.css.map((item) => item.id));
@@ -479,7 +566,7 @@ async function handleRecorderHello(message, sender) {
   session.page = { url: nextUrl, title: message.page?.title || tab?.title || session.page?.title || '' };
   scheduleSave(session);
   scheduleBadge(tabId, session);
-  return { ok: true, active: session.active, settings: session.settings, tabId, startedAt: session.startedAt };
+  return { ok: true, active: session.active, settings: session.settings, tabId, startedAt: session.startedAt, panelOpen: hasPanel(tabId) };
 }
 
 async function handleRecorderEvents(message, sender) {
@@ -502,7 +589,7 @@ async function handleRecorderEvents(message, sender) {
 
 async function handleSnapshot(message, sender) {
   const tabId = sender?.tab?.id;
-  if (!Number.isInteger(tabId)) return;
+  if (!Number.isInteger(tabId) || !hasPanel(tabId)) return;
   const session = await loadSession(tabId);
   session.snapshot = { animations: message.snapshot?.animations || [], at: Date.now() };
   broadcast(tabId, { type: 'snapshot', snapshot: session.snapshot });
@@ -525,6 +612,7 @@ async function handlePanelHello(port, message) {
     port.postMessage({ type: 'session', session: publicSession(session) });
   } catch { /* port closed */ }
   scheduleBadge(tabId, session);
+  await sendStateToTab(tabId);
   chrome.sidePanel.setOptions({ tabId, path: 'panel.html', enabled: true }).catch(() => {});
 }
 
@@ -536,13 +624,13 @@ async function handlePanelAction(port, message) {
     case 'pause':
     case 'resume': {
       const session = await setActive(tabId, message.action === 'resume');
-      port.postMessage({ type: 'state', active: session.active, settings: session.settings });
+      port.postMessage({ type: 'state', active: session.active, settings: session.settings, panelOpen: hasPanel(tabId) });
       break;
     }
     case 'toggle': {
       const session = await loadSession(tabId);
       const updated = await setActive(tabId, !session.active);
-      port.postMessage({ type: 'state', active: updated.active, settings: updated.settings });
+      port.postMessage({ type: 'state', active: updated.active, settings: updated.settings, panelOpen: hasPanel(tabId) });
       break;
     }
     case 'clear':
@@ -559,7 +647,7 @@ async function handlePanelAction(port, message) {
       const session = await loadSession(tabId);
       session.settings = { ...session.settings, ...(message.settings || {}) };
       scheduleSave(session);
-      try { await chrome.tabs.sendMessage(tabId, { type: 'webcatcher:state', active: session.active, settings: session.settings }); } catch { /* ignore */ }
+      try { await chrome.tabs.sendMessage(tabId, { type: 'webcatcher:state', active: session.active, settings: session.settings, panelOpen: hasPanel(tabId) }); } catch { /* ignore */ }
       broadcast(tabId, { type: 'settings', settings: session.settings });
       break;
     }
@@ -568,6 +656,7 @@ async function handlePanelAction(port, message) {
       const session = await loadSession(tabId);
       port.postMessage({ type: 'session', session: publicSession(session) });
       scheduleBadge(tabId, session);
+      await sendStateToTab(tabId);
       break;
     }
     default:
@@ -606,7 +695,11 @@ chrome.runtime.onConnect.addListener((port) => {
       handlePanelAction(port, message).catch((error) => console.warn('[WebCatcher] panel action', error));
     }
   });
-  port.onDisconnect.addListener(() => panelPorts.delete(port));
+  port.onDisconnect.addListener(() => {
+    const info = panelPorts.get(port);
+    panelPorts.delete(port);
+    if (info && !hasPanel(info.tabId)) sendStateToTab(info.tabId).catch(() => {});
+  });
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
