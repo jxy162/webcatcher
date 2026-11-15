@@ -1,0 +1,10 @@
+﻿{
+  "name": "webcatcher",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Capture live web animation implementations from Chrome.",
+  "type": "module",
+  "scripts": {
+    "check": "node --check background.js && node --check content/bridge.js && node --check content/recorder.js && node --check panel.js"
+  }
+}
